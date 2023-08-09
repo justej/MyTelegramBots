@@ -22,3 +22,5 @@ go.work
 
 # Other
 run.sh
+examples/*
+telecho

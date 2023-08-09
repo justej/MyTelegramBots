@@ -6,14 +6,13 @@ import (
 
 type State int
 
-var (
-	db     = database.NewDatabase()
-	states = make(map[int64]State)
-)
+var states = make(map[int64]State)
 
 func main() {
-	bot := InitBot()
-	InitReminders(bot, &db)
+	db := database.InitDatabase()
 
-	RunBot(bot)
+	bot := InitBot()
+	InitReminders(bot, db)
+
+	RunBot(bot, db)
 }

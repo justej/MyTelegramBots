@@ -1,10 +1,10 @@
 package main
 
 import (
-	"errors"
 	"log"
 	"strings"
 	"telecho/database"
+	"telecho/logger"
 	"time"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -22,21 +22,26 @@ type ReminderSet struct {
 }
 
 type ReminderMaster struct {
-	bot         *tg.BotAPI
-	db          *database.Database
-	reminderSet map[int]*ReminderSet
+	bot            *tg.BotAPI
+	db             *database.Database
+	reminderToUser map[int]*ReminderSet
 }
+
+const (
+	clock          = 20 * time.Second
+	barrier12Hours = 12 * time.Hour
+)
 
 var reminderMaster ReminderMaster
 
 func InitReminders(bot *tg.BotAPI, db *database.Database) {
 	reminderMaster = ReminderMaster{
-		bot:         bot,
-		db:          db,
-		reminderSet: make(map[int]*ReminderSet),
+		bot:            bot,
+		db:             db,
+		reminderToUser: make(map[int]*ReminderSet),
 	}
 
-	ch := time.NewTicker(20 * time.Second).C
+	ch := time.NewTicker(clock).C
 	go remind(ch)
 }
 
@@ -44,14 +49,14 @@ func remind(ch <-chan time.Time) {
 	for range ch {
 		hours, minutes, _ := time.Now().Clock()
 		t := hours*60 + minutes
-		r, ok := reminderMaster.reminderSet[t]
+		r, ok := reminderMaster.reminderToUser[t]
 		if !ok {
 			continue
 		}
 
 		now := time.Now()
 		for u, r := range r.reminders {
-			if now.Sub(r.lastSentOn) > 12*time.Hour {
+			if now.Sub(r.lastSentOn) > barrier12Hours {
 				r.lastSentOn = now
 				log.Printf("Sending a reminder for user %d", u)
 				go sendReminder(u, r, &reminderMaster)
@@ -63,79 +68,90 @@ func remind(ch <-chan time.Time) {
 func sendReminder(u int64, r *Reminder, rm *ReminderMaster) {
 	db := (*(*rm).db)
 
-	list := db.ListFirstMemos(u, 5, true)
-	if _, err := sendMemosForToday(rm.bot, r.chatID, list); err != nil {
-		logForUser(u, "failed on '/list:'", err)
+	list := db.ListFirstMemos(u, r.chatID, 5, true)
+	if _, err := sendMemosForToday(rm.bot, r.chatID, &list, nil); err != nil {
+		logger.ForUser(u, "failed on '/list:'", err)
 	}
 }
 
-func delReminder(u int64) {
-	data := db[u]
-	t := data.Config.RemindHour*60 + data.Config.RemindMin
+// func delReminder(u int64) {
+// 	data := db[u]
+// 	t := data.Config.RemindHour*60 + data.Config.RemindMin
 
-	reminderSet := reminderMaster.reminderSet[t]
-	if reminderSet == nil {
-		return
-	}
-	if reminderSet.reminders == nil {
-		return
-	}
+// 	reminderSet := reminderMaster.reminderSet[t]
+// 	if reminderSet == nil {
+// 		return
+// 	}
+// 	if reminderSet.reminders == nil {
+// 		return
+// 	}
 
-	// reminderSet.reminders
-}
+// 	// reminderSet.reminders
+// }
 
-func setReminder(u int64) {
-	data := db[u]
-	t := data.Config.RemindHour*60 + data.Config.RemindMin
-
-	reminderSet := reminderMaster.reminderSet[t]
-	if reminderSet == nil {
-		reminderSet = &ReminderSet{reminders: make(map[int64]*Reminder)}
-		reminderMaster.reminderSet[t] = reminderSet
-	}
-	if reminderSet.reminders == nil {
-		reminderSet.reminders = make(map[int64]*Reminder)
+func setReminder(u int64) bool {
+	rp, ok := reminderMaster.db.GetRemindParams(u)
+	if !ok {
+		return false
 	}
 
-	reminderSet.reminders[u] = &Reminder{
+	if rp == nil {
+		logger.ForUser(u, "no reminder parameters found", nil)
+		return false
+	}
+
+	tUTC := rp.RemindAt.UTC()
+	t := tUTC.Hour()*60 + tUTC.Minute()
+
+	r2u := reminderMaster.reminderToUser[t]
+	if r2u == nil {
+		r2u = &ReminderSet{reminders: make(map[int64]*Reminder)}
+		reminderMaster.reminderToUser[t] = r2u
+	}
+	if r2u.reminders == nil {
+		r2u.reminders = make(map[int64]*Reminder)
+	}
+
+	r2u.reminders[u] = &Reminder{
 		lastSentOn: time.UnixMicro(0),
 		userID:     u,
-		chatID:     data.Config.ChatID,
+		chatID:     rp.ChatID,
 	}
+
+	return true
 }
 
-func updateReminder(bot *tg.BotAPI, u, chatID int64, text string) error {
+func updateReminder(bot *tg.BotAPI, db *database.Database, u, chatID int64, text string) bool {
 	parts := strings.Split(text, ":")
 	if len(parts) != 2 {
-		return errors.New("Only one ':' separator is allowed")
+		return false
 	}
 
 	hour, err := validateInt(parts[0], 0, 23)
 	if err != nil {
-		return err
+		return false
 	}
 
 	minute, err := validateInt(parts[1], 0, 59)
 	if err != nil {
-		return err
+		return false
 	}
 
-	data, ok := db[u]
+	rp, ok := db.GetRemindParams(u)
 	if !ok {
-		log.Printf("data is missing for user %d", u)
-		data = *database.NewData()
+		logger.ForUser(u, "failed to update reminder", nil)
+		return false
+	}
+	if rp == nil {
+		logger.ForUser(u, "no reminder parameters found", nil)
+		return false
 	}
 
-	if data.Config == nil {
-		log.Printf("config is missing for user %d", u)
-		data.Config = database.NewConfig()
+	t := time.Date(0, 0, 0, hour, minute, 0, 0, rp.RemindAt.Location())
+	ok = db.SetRemindAt(u, chatID, t)
+	if !ok {
+		return false
 	}
 
-	data.Config.RemindHour = hour
-	data.Config.RemindMin = minute
-	db[u] = data
-
-	setReminder(u)
-
-	return nil
+	return setReminder(u)
 }
