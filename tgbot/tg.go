@@ -88,12 +88,15 @@ func handleMessage(message *tg.Message) {
 			return
 		}
 
-		msg := tg.NewMessage(chatID, "Looks like you wanted to add a memo. Adding it.")
+		if !db.AddMemo(u, chatID, message.Text) {
+			return
+		}
+
+		msg := tg.NewMessage(chatID, "Looks like you wanted to add a memo. Added it.")
 		msg.ReplyToMessageID = message.MessageID
 		if _, err := bot.Send(msg); err != nil {
 			logger.ForUser(u, "failed on quick add:", err)
 		}
-		addMemo(u, chatID, message.Text)
 
 	case add:
 		addMemo(u, chatID, message.Text)
@@ -214,6 +217,7 @@ func handleCommand(message *tg.Message) {
 		resetState(u, chatID)
 	}
 
+	// TODO: make sure that trailing spaces won't be interpreted as long command
 	switch cmd := message.Command(); cmd {
 	case "start":
 		err := db.CreateUser(u, chatID)
@@ -228,7 +232,7 @@ func handleCommand(message *tg.Message) {
 			return
 		}
 
-		msg := tg.NewMessage(chatID, "Hello, I'm an experienced memo keeper. I write down your memos and remind about them from time to time. By the way, I can tell me when to send you the reminder, so I won't wake you up when you decided to stay in bed ;)")
+		msg := tg.NewMessage(chatID, "Hello, I'm an experienced memo keeper. I write down your memos and remind about them from time to time. By the way, you can tell me when to send you the reminder, so I won't wake you up when you decided to stay in bed ;) Send me your location so I'll know in which time zone is your time")
 		if _, err := bot.Send(msg); err != nil {
 			logger.ForUser(u, "failed on sending hello message:", err)
 		}
@@ -244,9 +248,9 @@ func handleCommand(message *tg.Message) {
 /ins - to add a new memo at the beginning of the list
 /add - to add a new memo at the end of the list
 /del - to immediately delete the memo
-/done - to mark the memo as done, I'll delete done memos before next reminder
+/done - to mark the memo as done, I'll delete done memos in approximately 24 hours
 /reorder - to change the display order of your memos
-/remindat - to let me know when to send you a reminder
+/remindat - to let me know when to send you a reminder (send location to update time zone)
 /settings - to list settings`)
 		if _, err := bot.Send(msg); err != nil {
 			logger.ForUser(u, "failed on '/help':", err)
@@ -267,7 +271,13 @@ func handleCommand(message *tg.Message) {
 	case "add":
 		if len(message.Text) > len("/add") {
 			text := message.Text[len("/add "):]
-			addMemo(u, chatID, text)
+			ok := db.AddMemo(u, chatID, text)
+			if !ok {
+				return
+			}
+			msg := tg.NewMessage(chatID, "Added to the end of the list")
+			msg.ReplyToMessageID = message.MessageID
+			bot.Send(msg)
 			return
 		}
 
@@ -281,7 +291,14 @@ func handleCommand(message *tg.Message) {
 	case "ins":
 		if len(message.Text) > len("/ins") {
 			text := message.Text[len("/ins "):]
-			insertMemo(u, chatID, text)
+			ok := db.InsertMemo(u, chatID, text)
+			if !ok {
+				return
+			}
+
+			msg := tg.NewMessage(chatID, "Now it's your top priority memo")
+			msg.ReplyToMessageID = message.MessageID
+			bot.Send(msg)
 			return
 		}
 
@@ -327,13 +344,23 @@ func handleCommand(message *tg.Message) {
 	case "remindat":
 		if len(message.Text) > len("/remindat") {
 			text := message.Text[len("/remindat "):]
-			updateReminder(u, text)
+			if !updateReminder(u, text) {
+				logger.ForUser(u, "failed on '/remindat'", nil)
+				return
+			}
+
+			msg := tg.NewMessage(chatID, "Gotcha, I'll remind at "+ text)
+			if _, err := bot.Send(msg); err != nil {
+				logger.ForUser(u, "failed confirming '/remindat'", err)
+				return
+			}
+
 			return
 		}
 
 		msg := tg.NewMessage(chatID, "Enter hour and minute to send you a reminder in the format HH:MM. Send location to update timezone")
 		if _, err := bot.Send(msg); err != nil {
-			logger.ForUser(u, "failed on '/add':", err)
+			logger.ForUser(u, "failed on '/remindat'", err)
 			return
 		}
 		states[u] = remindat

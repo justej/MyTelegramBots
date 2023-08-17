@@ -156,36 +156,42 @@ func extractMemos(rows pgx.Rows, u int64) ([]memo, []memo) {
 }
 
 // AddMemo inserts new memo at the end of the memo list
-func (db *Database) AddMemo(u int64, c int64, text string) {
+func (db *Database) AddMemo(u int64, c int64, text string) bool {
 	if _, err := db.Conn.Exec(noCtx, `INSERT INTO memos(chat_id, text, state, priority, timestamp)
 VALUES($1, $2, $3, COALESCE(
 (SELECT max(priority) FROM memos WHERE chat_id=$1 AND state=$3), 0)+1, $4)`, c, text, memoStateActive, clk.Now().UTC()); err != nil {
 		logger.ForUser(u, "failed to add memo", err)
+		return false
 	}
+
+	return true
 }
 
 // InsertMemo inserts new memo at the beginning of the memo list
-func (db *Database) InsertMemo(u int64, c int64, text string) {
+func (db *Database) InsertMemo(u int64, c int64, text string) bool {
 	tx, err := db.Conn.BeginTx(noCtx, repeatableReadIsoLevel)
 	if err != nil {
 		logger.ForUser(u, "failed to begin transaction", err)
-		return
+		return false
 	}
 	defer tx.Rollback(noCtx)
 
 	if _, err = tx.Exec(noCtx, `UPDATE memos SET priority=priority+1
 WHERE chat_id=$1 AND state=$2`, c, memoStateActive); err != nil {
 		logger.ForUser(u, "failed to update priorities", err)
-		return
+		return false
 	}
 	if _, err = tx.Exec(noCtx, `INSERT INTO memos(chat_id, text, state, priority, timestamp)
 VALUES($1, $2, $3, 1, $4)`, c, text, memoStateActive, clk.Now().UTC()); err != nil {
 		logger.ForUser(u, "failed to insert memo", err)
-		return
+		return false
 	}
 	if err = tx.Commit(noCtx); err != nil {
 		logger.ForUser(u, "failed to commit", err)
+		return false
 	}
+
+	return true
 }
 
 // markAs updates memo status of the given memo
