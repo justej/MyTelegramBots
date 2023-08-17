@@ -29,6 +29,8 @@ func Init() *Database {
 		log.Panic(err)
 	}
 
+	log.Println("Connected to database")
+
 	return db
 }
 

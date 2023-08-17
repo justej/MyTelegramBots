@@ -224,6 +224,7 @@ func (db *Database) GetUsers() (users []int64) {
 		log.Println("failed fetching list of users")
 		return nil
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		var u int64
@@ -235,6 +236,7 @@ func (db *Database) GetUsers() (users []int64) {
 
 		users = append(users, u)
 	}
+
 	return users
 }
 

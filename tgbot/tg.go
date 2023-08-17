@@ -36,6 +36,20 @@ var (
 
 type State int
 
+func Init(d *database.Database) {
+	db = d
+	tgToken := os.Getenv("TG_TOKEN")
+	b, err := tg.NewBotAPI(tgToken)
+	if err != nil {
+		log.Panic(err)
+	}
+	bot = b
+
+	bot.Debug = false
+
+	log.Printf("Authorized on account %s", bot.Self.UserName)
+}
+
 func Run() {
 	u := tg.NewUpdate(0)
 	u.Timeout = 60
@@ -54,20 +68,6 @@ func Run() {
 			// TODO
 		}
 	}
-}
-
-func Init(d *database.Database) {
-	db = d
-	tgToken := os.Getenv("TG_TOKEN")
-	b, err := tg.NewBotAPI(tgToken)
-	if err != nil {
-		log.Panic(err)
-	}
-	bot = b
-
-	bot.Debug = false
-
-	log.Printf("Authorized on account %s", bot.Self.UserName)
 }
 
 func handleMessage(message *tg.Message) {

@@ -30,7 +30,11 @@ func Init(d *database.Database, s func(int64, int64)) {
 	sendReminder = s
 	ch := time.NewTicker(reminderTick).C
 
-	for _, u := range db.GetUsers() {
+	users := db.GetUsers()
+
+	log.Printf("Initializing reminders for %d users", len(users))
+
+	for _, u := range users {
 		ok := Set(u)
 		if !ok {
 			logger.ForUser(u, "failed to fetch remind parameters; the user won't get reminders", nil)
@@ -45,7 +49,6 @@ func remind(ch <-chan time.Time) {
 		now := clk.Now().UTC()
 		for {
 			r, ok := rq.Peek().(*Reminder)
-			log.Printf("r.at in UTC:%v; now in UTC: %v", r.at, now)
 			if !ok || now.Before(r.at) {
 				break
 			}
