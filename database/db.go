@@ -67,6 +67,10 @@ func (db *Database) ListFirstMemos(u, c int64, n int, short bool) string {
 	defer rows.Close()
 
 	activeMemos, _ := extractMemos(rows, u)
+	if len(activeMemos) < n {
+		n = len(activeMemos)
+	}
+
 	list := listMemos(activeMemos[:n], short)
 	if len(activeMemos) > n {
 		list += "\n..."
