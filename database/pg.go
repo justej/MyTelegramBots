@@ -75,7 +75,7 @@ func newDatabase(connStr string) (*Database, error) {
 
 // CreateUser creates a new user or updates chat ID for the case when the bot was deleted earlier
 // UTC timezone is used by default
-func (db *Database) CreateUser(u int64, c int64) error {
+func (db *Database) CreateUser(u, c int64) error {
 	tx, err := db.Conn.BeginTx(noCtx, repeatableReadIsoLevel)
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func (db *Database) CreateUser(u int64, c int64) error {
 	switch {
 	case err == pgx.ErrNoRows:
 		if _, err := tx.Exec(noCtx, `INSERT INTO users(user_id, chat_id, remind, remind_at, timezone)
-VALUES($1, $2, $3, $4)`, u, c, true, DefaultTime, DefaultTimeZone); err != nil {
+VALUES($1, $2, $3, $4, $5)`, u, c, true, DefaultTime, DefaultTimeZone); err != nil {
 			logger.ForUser(u, "failed inserting user", err)
 			return errFailedCreateUser
 		}
@@ -111,7 +111,7 @@ VALUES($1, $2, $3, $4)`, u, c, true, DefaultTime, DefaultTimeZone); err != nil {
 		logger.ForUser(u, "failed adding user", err)
 		return errFailedCreateUser
 	}
-	return err
+	return nil
 }
 
 // getMemosRows returns active and done within the last 24 hours memos
@@ -221,7 +221,7 @@ WHERE chat_id=$1 AND state=$2 AND priority>$3`, c, memoStateActive, n); err != n
 func (db *Database) GetUsers() (users []int64) {
 	rows, err := db.Conn.Query(noCtx, `SELECT user_id FROM users`)
 	if err != nil {
-		log.Println("failed fetching list of users")
+		log.Println("failed fetching list of users:", err)
 		return nil
 	}
 	defer rows.Close()
@@ -230,7 +230,7 @@ func (db *Database) GetUsers() (users []int64) {
 		var u int64
 		err = rows.Scan(&u)
 		if err != nil {
-			log.Println("failed reading user ID")
+			log.Println("failed reading user ID", err)
 			continue
 		}
 
