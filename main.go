@@ -2,17 +2,16 @@ package main
 
 import (
 	"telecho/database"
+	"telecho/reminder"
+	"telecho/tgbot"
+	"telecho/timezone"
 )
 
-type State int
-
-var states = make(map[int64]State)
-
 func main() {
-	db := database.InitDatabase()
+	timezone.Init()
+	db := database.Init()
+	tgBot.Init(db)
+	reminder.Init(db, tgBot.SendReminder)
 
-	bot := InitBot()
-	InitReminders(bot, db)
-
-	RunBot(bot, db)
+	tgBot.Run()
 }

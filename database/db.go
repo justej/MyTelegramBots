@@ -6,14 +6,12 @@ import (
 	"strconv"
 	"strings"
 	"telecho/logger"
-	"time"
 )
 
-const shortLineLen int = 40
-
-var (
-	DefaultTime, _ = time.Parse(time.TimeOnly, "9:00:00")
-	DefaultOffset  = 0
+const (
+	shortLineLen    = 40
+	DefaultTime     = 9 * 60 // 9:00
+	DefaultTimeZone = "UTC"
 )
 
 func min(x, y int) int {
@@ -23,7 +21,7 @@ func min(x, y int) int {
 	return y
 }
 
-func InitDatabase() *Database {
+func Init() *Database {
 	// connection string should look like postgresql://localhost:5432/finding_memo?user=admn&password=passwd
 	connStr := os.Getenv("PG_CONN_STR")
 	db, err := newDatabase(connStr)
@@ -67,7 +65,7 @@ func (db *Database) ListFirstMemos(u, c int64, n int, short bool) string {
 	defer rows.Close()
 
 	activeMemos, _ := extractMemos(rows, u)
-	list := listMemos(activeMemos, short)
+	list := listMemos(activeMemos[:n], short)
 	if len(activeMemos) > n {
 		list += "\n..."
 	}
@@ -77,12 +75,12 @@ func (db *Database) ListFirstMemos(u, c int64, n int, short bool) string {
 
 // Done marks the task as done
 func (db *Database) Done(u, c int64, n int) {
-	db.markAs(stateDone, u, c, n)
+	db.markAs(memoStateDone, u, c, n)
 }
 
 // Delete soft-deletes the task
 func (db *Database) Delete(u, c int64, n int) {
-	db.markAs(stateDeleted, u, c, n)
+	db.markAs(memoStateDeleted, u, c, n)
 }
 
 func (db *Database) GetLenDone(u, c int64) int {

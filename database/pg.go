@@ -3,7 +3,9 @@ package database
 import (
 	"context"
 	"errors"
+	"log"
 	"telecho/logger"
+	"telecho/timezone"
 	"time"
 
 	"github.com/jmhodges/clock"
@@ -19,7 +21,7 @@ DB tables:
 	- user ID: bigint - user ID
 	- chat ID: bigint - chat ID
 	- remind: boolean - on/off reminder
-	- remindAt: time - time to remind memos
+	- remindAt: smallint - remind time as number of minutes since midnight
 	- latitude: float4 - latitude for TZ identification
 	- longitude: float4 - longitude for TZ identification
 	- utcOffset: int4 - UTC offset in minutes
@@ -49,10 +51,7 @@ var (
 	errFailedCreateUser    = errors.New("failed to add or update user")
 	never                  = time.Unix(0, 0)
 	clk                    = clock.New()
-)
-
-const (
-	minus24Hours = -24 * time.Hour
+	minus24Hours           = -24 * time.Hour
 )
 
 type Timetz struct {
@@ -72,6 +71,8 @@ func newDatabase(connStr string) (*Database, error) {
 	return &Database{Conn: dbpool}, err
 }
 
+// TODO: make all operations with DB robust (retry several times on error)
+
 // CreateUser creates a new user or updates chat ID for the case when the bot was deleted earlier
 // UTC timezone is used by default
 func (db *Database) CreateUser(u int64, c int64) error {
@@ -86,8 +87,8 @@ func (db *Database) CreateUser(u int64, c int64) error {
 
 	switch {
 	case err == pgx.ErrNoRows:
-		if _, err := tx.Exec(noCtx, `INSERT INTO users(user_id, chat_id, remind, remind_at, utc_offset)
-VALUES($1, $2, $3, $4, $5)`, u, c, true, DefaultTime, DefaultOffset); err != nil {
+		if _, err := tx.Exec(noCtx, `INSERT INTO users(user_id, chat_id, remind, remind_at, timezone)
+VALUES($1, $2, $3, $4)`, u, c, true, DefaultTime, DefaultTimeZone); err != nil {
 			logger.ForUser(u, "failed inserting user", err)
 			return errFailedCreateUser
 		}
@@ -120,7 +121,7 @@ FROM memos
 WHERE chat_id=$1 AND (state=$2 OR (state=$3 AND timestamp>$4))
 ORDER BY priority ASC`
 
-	return db.Conn.Query(noCtx, query, c, stateActive, stateDone, clk.Now().Add(minus24Hours))
+	return db.Conn.Query(noCtx, query, c, memoStateActive, memoStateDone, clk.Now().UTC().Add(minus24Hours))
 }
 
 // extractMemos splits raw rows of memos into active and done memos
@@ -144,9 +145,9 @@ func extractMemos(rows pgx.Rows, u int64) ([]memo, []memo) {
 		}
 
 		switch memo.state {
-		case stateActive:
+		case memoStateActive:
 			activeMemos = append(activeMemos, memo)
-		case stateDone:
+		case memoStateDone:
 			doneMemos = append(doneMemos, memo)
 		}
 	}
@@ -158,7 +159,7 @@ func extractMemos(rows pgx.Rows, u int64) ([]memo, []memo) {
 func (db *Database) AddMemo(u int64, c int64, text string) {
 	if _, err := db.Conn.Exec(noCtx, `INSERT INTO memos(chat_id, text, state, priority, timestamp)
 VALUES($1, $2, $3, COALESCE(
-(SELECT max(priority) FROM memos WHERE chat_id=$1 AND state=$3), 0)+1, $4)`, c, text, stateActive, clk.Now()); err != nil {
+(SELECT max(priority) FROM memos WHERE chat_id=$1 AND state=$3), 0)+1, $4)`, c, text, memoStateActive, clk.Now().UTC()); err != nil {
 		logger.ForUser(u, "failed to add memo", err)
 	}
 }
@@ -173,12 +174,12 @@ func (db *Database) InsertMemo(u int64, c int64, text string) {
 	defer tx.Rollback(noCtx)
 
 	if _, err = tx.Exec(noCtx, `UPDATE memos SET priority=priority+1
-WHERE chate_id=$1 AND state=$2`, c, stateActive); err != nil {
+WHERE chat_id=$1 AND state=$2`, c, memoStateActive); err != nil {
 		logger.ForUser(u, "failed to update priorities", err)
 		return
 	}
 	if _, err = tx.Exec(noCtx, `INSERT INTO memos(chat_id, text, state, priority, timestamp)
-VALUES($1, $2, $3, 1, $4)`, c, text, stateActive, clk.Now()); err != nil {
+VALUES($1, $2, $3, 1, $4)`, c, text, memoStateActive, clk.Now().UTC()); err != nil {
 		logger.ForUser(u, "failed to insert memo", err)
 		return
 	}
@@ -201,12 +202,13 @@ func (db *Database) markAs(state uint, u, c int64, n int) {
 
 	if _, err = tx.Exec(noCtx, `UPDATE memos
 SET state=$1, timestamp=$2
-WHERE chat_id=$3 AND priority=$4`, state, clk.Now(), c, n); err != nil {
+WHERE chat_id=$3 AND state=$4 AND priority=$5`, state, clk.Now().UTC(), c, memoStateActive, n); err != nil {
 		logger.ForUser(u, "failed to update memo state", err)
 		return
 	}
-	if _, err = tx.Exec(noCtx, `UPDATE memos SET priority=priority-1
-WHERE chat_id=$1 AND priority>$2`, c, n); err != nil {
+	if _, err = tx.Exec(noCtx, `UPDATE memos
+SET priority=priority-1
+WHERE chat_id=$1 AND state=$2 AND priority>$3`, c, memoStateActive, n); err != nil {
 		logger.ForUser(u, "failed to update priorities", err)
 		return
 	}
@@ -215,13 +217,33 @@ WHERE chat_id=$1 AND priority>$2`, c, n); err != nil {
 	}
 }
 
+// GetUsers returns a list of all user IDs
+func (db *Database) GetUsers() (users []int64) {
+	rows, err := db.Conn.Query(noCtx, `SELECT user_id FROM users`)
+	if err != nil {
+		log.Println("failed fetching list of users")
+		return nil
+	}
+
+	for rows.Next() {
+		var u int64
+		err = rows.Scan(&u)
+		if err != nil {
+			log.Println("failed reading user ID")
+			continue
+		}
+
+		users = append(users, u)
+	}
+	return users
+}
+
 // GetRemindParams returns the time
-func (db *Database) GetRemindParams(u int64) (*RemindParams, bool) {
-	var remindAt pgtype.Time
+	func (db *Database) GetRemindParams(u int64) (*RemindParams, bool) {
 	var remindParams RemindParams
-	err := db.Conn.QueryRow(noCtx, `SELECT remind, remind_at, chat_id, utc_offset
+	err := db.Conn.QueryRow(noCtx, `SELECT remind, remind_at, chat_id, timezone
 FROM users
-WHERE user_id=$1`, u).Scan(&remindParams.Set, &remindAt, &remindParams.UTCOffset, &remindParams.ChatID)
+WHERE user_id=$1`, u).Scan(&remindParams.Set, &remindParams.RemindAt, &remindParams.ChatID, &remindParams.TimeZone)
 	switch {
 	case err == pgx.ErrNoRows:
 		return nil, true
@@ -230,18 +252,23 @@ WHERE user_id=$1`, u).Scan(&remindParams.Set, &remindAt, &remindParams.UTCOffset
 		return nil, false
 	}
 
-	if remindAt.Valid {
-		remindParams.RemindAt = time.UnixMicro(remindAt.Microseconds)
-	} else {
-		remindParams.RemindAt = never
-	}
-
 	return &remindParams, true
 }
 
 // SetRemindAt updates reminder time in DB
-func (db *Database) SetRemindAt(u, c int64, t time.Time) bool {
-	_, err := db.Conn.Exec(noCtx, `UPDATE users SET chat_id=$1, remind_at=$2, remind=TRUE
-WHERE user_id = $3`, c, t, u)
+func (db *Database) SetRemindAt(u int64, t int) bool {
+	_, err := db.Conn.Exec(noCtx, `UPDATE users SET remind_at=$1, remind=TRUE
+WHERE user_id = $2`, t, u)
+	if err != nil {
+		logger.ForUser(u, "failed updating reminder", err)
+	}
+	return err == nil
+}
+
+func (db *Database) UpdateTZ(u int64, loc *timezone.GeoLocation, tz string) bool {
+	_, err := db.Conn.Exec(noCtx, `UPDATE users SET latitude=$1, longitude=$2, timezone=$3`, loc.Latitude, loc.Longitude, tz)
+	if err != nil {
+		logger.ForUser(u, "failed updating time zone", err)
+	}
 	return err == nil
 }
