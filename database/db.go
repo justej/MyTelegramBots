@@ -23,7 +23,7 @@ func min(x, y int) int {
 
 func Init() *Database {
 	// connection string should look like postgresql://localhost:5432/finding_memo?user=admn&password=passwd
-	connStr := os.Getenv("PG_CONN_STR")
+	connStr := os.Getenv("POSTGRES_URI")
 	db, err := newDatabase(connStr)
 	if err != nil {
 		log.Panic(err)
