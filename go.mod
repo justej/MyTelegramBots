@@ -1,4 +1,4 @@
-module telecho
+module findingmemo
 
 go 1.20
 

@@ -1,17 +1,17 @@
 package main
 
 import (
-	"telecho/database"
-	"telecho/reminder"
-	"telecho/tgbot"
-	"telecho/timezone"
+	"findingmemo/database"
+	"findingmemo/reminder"
+	"findingmemo/tgbot"
+	"findingmemo/timezone"
 )
 
 func main() {
 	timezone.Init()
 	db := database.Init()
-	tgBot.Init(db)
-	reminder.Init(db, tgBot.SendReminder)
+	tgbot.Init(db)
+	reminder.Init(db, tgbot.SendReminder)
 
-	tgBot.Run()
+	tgbot.Run()
 }

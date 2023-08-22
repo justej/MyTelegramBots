@@ -1,15 +1,15 @@
-package tgBot
+package tgbot
 
 import (
+	"findingmemo/database"
+	"findingmemo/logger"
+	"findingmemo/reminder"
+	"findingmemo/timezone"
 	"fmt"
 	"log"
 	"os"
 	"strconv"
 	"strings"
-	"telecho/database"
-	"telecho/logger"
-	"telecho/reminder"
-	"telecho/timezone"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -349,7 +349,7 @@ func handleCommand(message *tg.Message) {
 				return
 			}
 
-			msg := tg.NewMessage(chatID, "Gotcha, I'll remind at "+ text)
+			msg := tg.NewMessage(chatID, "Gotcha, I'll remind at "+text)
 			if _, err := bot.Send(msg); err != nil {
 				logger.ForUser(u, "failed confirming '/remindat'", err)
 				return

@@ -3,9 +3,9 @@ package database
 import (
 	"context"
 	"errors"
+	"findingmemo/logger"
+	"findingmemo/timezone"
 	"log"
-	"telecho/logger"
-	"telecho/timezone"
 	"time"
 
 	"github.com/jmhodges/clock"
@@ -247,7 +247,7 @@ func (db *Database) GetUsers() (users []int64) {
 }
 
 // GetRemindParams returns the time
-	func (db *Database) GetRemindParams(u int64) (*RemindParams, bool) {
+func (db *Database) GetRemindParams(u int64) (*RemindParams, bool) {
 	var remindParams RemindParams
 	err := db.Conn.QueryRow(noCtx, `SELECT remind, remind_at, chat_id, timezone
 FROM users

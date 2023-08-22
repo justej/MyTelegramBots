@@ -2,9 +2,9 @@ package reminder
 
 import (
 	"container/heap"
+	"findingmemo/database"
+	"findingmemo/logger"
 	"log"
-	"telecho/database"
-	"telecho/logger"
 	"time"
 
 	"github.com/jmhodges/clock"
@@ -13,9 +13,9 @@ import (
 const reminderTick = 20 * time.Second
 
 var (
-	clk = clock.New()
-	rq  = NewReminderQueue()
-	db  *database.Database
+	clk          = clock.New()
+	rq           = NewReminderQueue()
+	db           *database.Database
 	sendReminder func(int64, int64)
 )
 
