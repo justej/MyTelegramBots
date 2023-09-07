@@ -49,6 +49,7 @@ func GetThemAll() []Record {
 
 	bots := []Record{}
 	for n, b := range botsRegistry {
+		b := b
 		bots = append(bots, Record{Name: n, Bot: &b})
 	}
 

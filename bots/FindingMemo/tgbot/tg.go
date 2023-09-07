@@ -39,7 +39,8 @@ func Init(tgToken string, d *database.Database) {
 	db = d
 	b, err := tg.NewBotAPI(tgToken)
 	if err != nil {
-		log.Panic(err)
+		log.Println(err)
+		return
 	}
 	bot = b
 
@@ -49,6 +50,11 @@ func Init(tgToken string, d *database.Database) {
 }
 
 func Run() {
+	if bot == nil {
+		log.Println("Bot can't run")
+		return
+	}
+
 	u := tg.NewUpdate(0)
 	u.Timeout = 60
 

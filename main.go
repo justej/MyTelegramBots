@@ -6,8 +6,9 @@ import (
 	"errors"
 	"os"
 
-	"go.uber.org/zap"
 	_ "botfarm/bots/FindingMemo"
+	_ "botfarm/bots/AlainDelon"
+	"go.uber.org/zap"
 )
 
 func getLogger() (*zap.SugaredLogger, func() error) {
