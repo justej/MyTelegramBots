@@ -18,7 +18,7 @@ type Zone struct {
 }
 
 func Init() {
-	z, err := LoadZonesFromFile("data/zone1970.tab")
+	z, err := LoadZonesFromFile("bots/findingmemo/data/zone1970.tab")
 	if err != nil {
 		log.Fatalf("failed loading time zones info")
 	}

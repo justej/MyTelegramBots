@@ -3,8 +3,8 @@ package database
 import (
 	"context"
 	"errors"
-	"findingmemo/logger"
-	"findingmemo/timezone"
+	"botfarm/bots/findingmemo/logger"
+	"botfarm/bots/findingmemo/timezone"
 	"log"
 	"time"
 

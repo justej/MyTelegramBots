@@ -2,8 +2,8 @@ package reminder
 
 import (
 	"container/heap"
-	"findingmemo/database"
-	"findingmemo/logger"
+	"botfarm/bots/findingmemo/database"
+	"botfarm/bots/findingmemo/logger"
 	"log"
 	"time"
 

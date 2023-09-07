@@ -1,13 +1,12 @@
 package tgbot
 
 import (
-	"findingmemo/database"
-	"findingmemo/logger"
-	"findingmemo/reminder"
-	"findingmemo/timezone"
+	"botfarm/bots/findingmemo/database"
+	"botfarm/bots/findingmemo/logger"
+	"botfarm/bots/findingmemo/reminder"
+	"botfarm/bots/findingmemo/timezone"
 	"fmt"
 	"log"
-	"os"
 	"strconv"
 	"strings"
 
@@ -36,9 +35,8 @@ var (
 
 type State int
 
-func Init(d *database.Database) {
+func Init(tgToken string, d *database.Database) {
 	db = d
-	tgToken := os.Getenv("TG_TOKEN")
 	b, err := tg.NewBotAPI(tgToken)
 	if err != nil {
 		log.Panic(err)

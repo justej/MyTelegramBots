@@ -1,9 +1,8 @@
 package database
 
 import (
-	"findingmemo/logger"
+	"botfarm/bots/findingmemo/logger"
 	"log"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -21,9 +20,8 @@ func min(x, y int) int {
 	return y
 }
 
-func Init() *Database {
+func Init(connStr string) *Database {
 	// connection string should look like postgresql://localhost:5432/finding_memo?user=admn&password=passwd
-	connStr := os.Getenv("POSTGRES_URI")
 	db, err := newDatabase(connStr)
 	if err != nil {
 		log.Panic(err)
