@@ -10,7 +10,7 @@ import (
 type Bot interface {
 	// Init method initializes the bot (connects to database, configures Telegram
 	// Bot, etc.) and returns a context that should be used in the bot. On
-	// failure, Init should return an error rather than panic.
+	// failure, Init should log the error and return it rather than panic.
 	Init(*Config, *zap.SugaredLogger) (*Context, error)
 	// Run starts the process of handling messages from the Telegram Bot. Multiple
 	// bots are supposed to run concurrently, so Run should be started in a new

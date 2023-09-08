@@ -1,10 +1,12 @@
-package database
+package db
 
 import (
-	"botfarm/bots/findingmemo/logger"
-	"log"
+	"botfarm/bot"
+	"database/sql"
 	"strconv"
 	"strings"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 const (
@@ -20,51 +22,53 @@ func min(x, y int) int {
 	return y
 }
 
-func Init(connStr string) *Database {
+func Init(connStr string) (*sql.DB, error) {
 	// connection string should look like postgresql://localhost:5432/finding_memo?user=admn&password=passwd
-	db, err := newDatabase(connStr)
+	d, err := sql.Open("pgx", connStr)
 	if err != nil {
-		log.Panic(err)
+		return nil, err
 	}
 
-	log.Println("Connected to database")
+	if err = d.Ping(); err != nil {
+		return nil, err
+	}
 
-	return db
+	return d, nil
 }
 
-func (db *Database) ListAllMemos(u, c int64, short bool) (string, string) {
-	rows, err := db.getMemosRows(u, c)
+func ListAllMemos(ctx *bot.Context, u, c int64, short bool) (string, string) {
+	rows, err := getMemosRows(ctx, u, c)
 	if err != nil {
-		logger.ForUser(u, "failed querying memos", err)
+		ctx.Logger.Errorw("failed querying memos", "err", err)
 		return "", ""
 	}
 	defer rows.Close()
 
-	active, done := extractMemos(rows, u)
+	active, done := extractMemos(ctx, rows, u)
 	return listMemos(active, short), listMemos(done, short)
 }
 
-func (db *Database) ListFullMemos(u, c int64, short bool) string {
-	rows, err := db.getMemosRows(u, c)
+func ListFullMemos(ctx *bot.Context, u, c int64, short bool) string {
+	rows, err := getMemosRows(ctx, u, c)
 	if err != nil {
-		logger.ForUser(u, "failed querying memos", err)
+		ctx.Logger.Errorw("failed querying memos","err",  err)
 		return ""
 	}
 	defer rows.Close()
 
-	activeMemos, _ := extractMemos(rows, u)
+	activeMemos, _ := extractMemos(ctx, rows, u)
 	return listMemos(activeMemos, short)
 }
 
-func (db *Database) ListFirstMemos(u, c int64, n int, short bool) string {
-	rows, err := db.getMemosRows(u, c)
+func ListFirstMemos(ctx *bot.Context, u, c int64, n int, short bool) string {
+	rows, err := getMemosRows(ctx, u, c)
 	if err != nil {
-		logger.ForUser(u, "failed querying memos", err)
+		ctx.Logger.Errorw("failed querying memos", "err", err)
 		return ""
 	}
 	defer rows.Close()
 
-	activeMemos, _ := extractMemos(rows, u)
+	activeMemos, _ := extractMemos(ctx, rows, u)
 	if len(activeMemos) < n {
 		n = len(activeMemos)
 	}
@@ -78,36 +82,36 @@ func (db *Database) ListFirstMemos(u, c int64, n int, short bool) string {
 }
 
 // Done marks the task as done
-func (db *Database) Done(u, c int64, n int) {
-	db.markAs(memoStateDone, u, c, n)
+func Done(ctx *bot.Context, u, c int64, n int) {
+	markAs(ctx, memoStateDone, u, c, n)
 }
 
 // Delete soft-deletes the task
-func (db *Database) Delete(u, c int64, n int) {
-	db.markAs(memoStateDeleted, u, c, n)
+func Delete(ctx *bot.Context, u, c int64, n int) {
+	markAs(ctx, memoStateDeleted, u, c, n)
 }
 
-func (db *Database) GetLenDone(u, c int64) int {
-	rows, err := db.getMemosRows(u, c)
+func GetLenDone(ctx *bot.Context, u, c int64) int {
+	rows, err := getMemosRows(ctx, u, c)
 	if err != nil {
-		logger.ForUser(u, "failed to count done memos", err)
+		ctx.Logger.Errorw("failed to count done memos", "err", err)
 		return 0
 	}
 	defer rows.Close()
 
-	_, doneMemos := extractMemos(rows, u)
+	_, doneMemos := extractMemos(ctx, rows, u)
 	return len(doneMemos)
 }
 
-func (db *Database) GetLenMemos(u, c int64) int {
-	rows, err := db.getMemosRows(u, c)
+func GetLenMemos(ctx *bot.Context, u, c int64) int {
+	rows, err := getMemosRows(ctx, u, c)
 	if err != nil {
-		logger.ForUser(u, "failed to count done memos", err)
+		ctx.Logger.Errorw("failed to count done memos", "err", err)
 		return 0
 	}
 	defer rows.Close()
 
-	activeMemos, _ := extractMemos(rows, u)
+	activeMemos, _ := extractMemos(ctx, rows, u)
 	return len(activeMemos)
 }
 

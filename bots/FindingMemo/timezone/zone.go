@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 )
 
@@ -17,13 +16,14 @@ type Zone struct {
 	TZ string
 }
 
-func Init() {
-	z, err := LoadZonesFromFile("bots/findingmemo/data/zone1970.tab")
+func Init() error {
+	z, err := LoadZonesFromFile("bots/FindingMemo/data/zone1970.tab")
 	if err != nil {
-		log.Fatalf("failed loading time zones info")
+		return err
 	}
 
 	timeZones = z
+	return nil
 }
 
 // LoadZonesFromFile reads local zones*.tab file, parses it and returns parsed data as

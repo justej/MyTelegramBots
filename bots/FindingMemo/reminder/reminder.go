@@ -1,9 +1,9 @@
 package reminder
 
 import (
+	"botfarm/bot"
+	"botfarm/bots/FindingMemo/db"
 	"container/heap"
-	"botfarm/bots/findingmemo/database"
-	"botfarm/bots/findingmemo/logger"
 	"log"
 	"time"
 
@@ -15,8 +15,7 @@ const reminderTick = 20 * time.Second
 var (
 	clk          = clock.New()
 	rq           = NewReminderQueue()
-	db           *database.Database
-	sendReminder func(int64, int64)
+	sendReminder func(*bot.Context, int64, int64)
 )
 
 type Reminder struct {
@@ -25,26 +24,25 @@ type Reminder struct {
 	userID int64
 }
 
-func Init(d *database.Database, s func(int64, int64)) {
-	db = d
+func Init(ctx *bot.Context, s func(*bot.Context, int64, int64)) {
 	sendReminder = s
 	ch := time.NewTicker(reminderTick).C
 
-	users := db.GetUsers()
+	users := db.GetUsers(ctx)
 
 	log.Printf("Initializing reminders for %d users", len(users))
 
 	for _, u := range users {
-		ok := Set(u)
+		ok := Set(ctx, u)
 		if !ok {
-			logger.ForUser(u, "failed to fetch remind parameters; the user won't get reminders", nil)
+			ctx.Logger.Error("failed to fetch remind parameters; the user won't get reminders")
 		}
 	}
 
-	go remind(ch)
+	go remind(ctx, ch)
 }
 
-func remind(ch <-chan time.Time) {
+func remind(ctx *bot.Context, ch <-chan time.Time) {
 	for range ch {
 		now := clk.Now().UTC()
 		for {
@@ -56,7 +54,7 @@ func remind(ch <-chan time.Time) {
 			heap.Pop(rq)
 
 			log.Printf("sending a reminder for user %d", r.userID)
-			go sendReminder(r.userID, r.chatID)
+			go sendReminder(ctx, r.userID, r.chatID)
 			r.at = r.at.Add(24 * time.Hour)
 			heap.Push(rq, r)
 		}
@@ -67,21 +65,21 @@ func delReminder(u int64) {
 	rq.Delete(u)
 }
 
-func Set(u int64) bool {
-	rp, ok := db.GetRemindParams(u)
+func Set(ctx *bot.Context, u int64) bool {
+	rp, ok := db.GetRemindParams(ctx, u)
 	if !ok {
 		return false
 	}
 
 	if rp == nil {
-		logger.ForUser(u, "no reminder parameters found", nil)
+		ctx.Logger.Warn("no reminder parameters found")
 		return false
 	}
 
 	// TODO: add location cache
 	loc, err := time.LoadLocation(rp.TimeZone)
 	if err != nil {
-		logger.ForUser(u, "failed loading location; using UTC time zone", err)
+		ctx.Logger.Errorw("failed loading location; using UTC time zone", "err", err)
 		loc = time.UTC
 	}
 
