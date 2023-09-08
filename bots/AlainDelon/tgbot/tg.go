@@ -84,9 +84,8 @@ func HandleCommand(ctx *bot.Context, upd *tg.Update) {
 	usr := msg.From.ID
 	cht := msg.Chat.ID
 
-
 	if states[usr] == nil {
-		states[usr] = &state{stage: stageIdle}
+		states[usr] = &state{stage: stageIdle, mainMessageID: msg.MessageID}
 	}
 
 	switch cmd {
@@ -167,28 +166,32 @@ func HandleUpdate(ctx *bot.Context, upd *tg.Update) {
 	usr := msg.From.ID
 	cht := msg.Chat.ID
 
-	st, ok := states[usr]
-	if !ok {
-		st = &state{stage: stageIdle}
-		states[usr] = st
+	if states[usr] == nil {
+		states[usr] = &state{stage: stageIdle, mainMessageID: msg.MessageID}
 	}
 
-	var keyboard *tg.InlineKeyboardMarkup
+	state := states[usr]
 
-	switch st.stage {
+	var keyboard *tg.InlineKeyboardMarkup
+	var prefix string
+
+	switch state.stage {
 	case stageTitle:
 		keyboard = &keyboardAdd
-		st.stage = stageAdd
-		st.movie.Title = txt
+		state.stage = stageAdd
+		state.movie.Title = txt
+		prefix = prefixMovieToAdd
 
 	case stageAltTitle:
 		keyboard = &keyboardAdd
-		st.stage = stageAdd
-		st.movie.AltTitle = txt
+		state.stage = stageAdd
+		state.movie.AltTitle = txt
+		prefix = prefixMovieToAdd
 
 	case stageYear:
 		keyboard = &keyboardAdd
-		st.stage = stageAdd
+		state.stage = stageAdd
+		prefix = prefixMovieToAdd
 
 		year, err := strconv.Atoi(txt)
 		if err != nil || year < 1850 || year > time.Now().UTC().Year()+2 {
@@ -197,27 +200,30 @@ func HandleUpdate(ctx *bot.Context, upd *tg.Update) {
 				ctx.Logger.Errorw("failed sending alert message", "err", err)
 			}
 		} else {
-			st.movie.Year = int16(year)
+			state.movie.Year = int16(year)
 		}
 
 	case stageChooseDel:
 		keyboard = &keyboardDel
-		st.movie = *movieByID(ctx, usr, txt)
-		st.stage = stageDel
+		state.movie = *movieByID(ctx, usr, txt)
+		state.stage = stageDel
+		prefix = prefixMovieToDelete
 
 	case stageChooseRate:
 		keyboard = &keyboardRate
-		st.movie = *movieByID(ctx, usr, txt)
-		st.stage = stageRate
+		state.movie = *movieByID(ctx, usr, txt)
+		state.stage = stageRate
+		prefix = prefixMovieToRate
 
 	case stageChooseUnrate:
 		keyboard = &keyboardUnrate
-		st.movie = *movieByID(ctx, usr, txt)
-		st.stage = stageUnrate
+		state.movie = *movieByID(ctx, usr, txt)
+		state.stage = stageUnrate
+		prefix = prefixMovieToUnrate
 	}
 
-	states[usr] = st
-	replaceMessage(ctx, usr, cht, st.mainMessageID, formatMovieWithHeaders(&st.movie), keyboard, st.stage)
+	states[usr] = state
+	replaceMessage(ctx, usr, cht, state.mainMessageID, prefix+formatMovieWithHeaders(&state.movie), keyboard, state.stage)
 
 	dm := tg.NewDeleteMessage(cht, msg.MessageID)
 	// ignore bot.Send errors because it always fails to deserialize response

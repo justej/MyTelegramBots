@@ -42,7 +42,7 @@ const (
 )
 
 const (
-	prefixMovieAdd      = "Fill out the fields.\nNote that title is required\n"
+	prefixMovieToAdd    = "Fill out the fields (title is required, the rest is optional)\n\n"
 	prefixMovieToDelete = "Movie to delete:\n\n"
 	prefixMovieToRate   = "Movie to rate:\n\n"
 	prefixMovieToUnrate = "Movie to unrate:\n\n"
@@ -179,7 +179,7 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 		case stageYear:
 			keyboard = &keyboardAdd
 			stage = stageAdd
-			message = formatMovieWithHeaders(&state.movie)
+			message = prefixMovieToAdd + formatMovieWithHeaders(&state.movie)
 
 		case stageChooseDel:
 			keyboard = &keyboardDel
@@ -233,7 +233,7 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(ctx, usr, cht, mID, prefixMovieAdd+formatMovieWithHeaders(&state.movie), &keyboardAdd, stageAdd)
+		replaceMessage(ctx, usr, cht, mID, prefixMovieToAdd+formatMovieWithHeaders(&state.movie), &keyboardAdd, stageAdd)
 
 	case cbqDel:
 		if state.stage != stageIdle {
