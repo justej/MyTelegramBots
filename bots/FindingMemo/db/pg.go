@@ -14,47 +14,13 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-/**
-DB tables:
-- users:
-	- user ID: bigint - user ID
-	- chat ID: bigint - chat ID
-	- remind: boolean - on/off reminder
-	- remindAt: smallint - remind time as number of minutes since midnight
-	- timezone: text - TZ name
-
-- memos:
-	- user ID: bigint - memo owner
-	- text: text - memo text
-	- priority: smallint - memo's ordinal number
-	- state: smallint - memo state:
-		- 0 - active
-		- 1 - done
-		- 2 - deleted
-	- priority: smallint - memo order
-	- timestamp: timestamp - timestamp of the last operation
-
-Indexes:
-- users:
-	- user ID - primary key
-- memos:
-	- user ID - primary key
-*/
-
 var (
-	noCtx                  = context.Background()
 	repeatableReadIsoLevel = &sql.TxOptions{Isolation: sql.LevelRepeatableRead}
-	errFetchingReminder    = errors.New("failed to fetch remind parameters")
 	errFailedCreateUser    = errors.New("failed to add or update user")
 	never                  = time.Unix(0, 0)
 	clk                    = clock.New()
 	minus24Hours           = -24 * time.Hour
 )
-
-type Timetz struct {
-	time.Time
-	Offset int16 // offset in minutes
-}
 
 // CreateUser creates a new user or updates chat ID for the case when the bot was deleted earlier
 // UTC timezone is used by default
