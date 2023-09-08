@@ -1,8 +1,8 @@
 package tgbot
 
 import (
+	"botfarm/bot"
 	"botfarm/bots/AlainDelon/db"
-	"botfarm/bots/AlainDelon/log"
 	"fmt"
 	"strconv"
 	"strings"
@@ -31,45 +31,6 @@ For CLI nerds there's a bunch of one-line commands. These commands, however, req
 /find - find movie by name or year. Format: /find <case-insensitive name or year>
 /help - this help`
 )
-
-var bot *tg.BotAPI
-
-func Init(token string) {
-	b, err := tg.NewBotAPI(token)
-	if err != nil {
-		log.Error(0, err, "Failed to initialize bot")
-		return
-	}
-
-	b.Debug = false
-	log.Infof("Successfully initialized bot as %s", b.Self.UserName)
-
-	bot = b
-}
-
-func Run() {
-	if bot == nil {
-		log.Error(0, nil, "Bot can't run")
-		return
-	}
-
-	uCfg := tg.NewUpdate(0)
-	uCfg.Timeout = 60
-
-	for u := range bot.GetUpdatesChan(uCfg) {
-		if u.Message != nil {
-			if u.Message.IsCommand() {
-				go handleCommand(&u)
-			} else {
-				go handleUpdate(&u)
-			}
-		}
-		if u.CallbackQuery != nil {
-			go handleCallbackQuery(&u)
-		}
-	}
-
-}
 
 type command struct {
 	name string
@@ -117,11 +78,12 @@ func makeCommand(c string) *command {
 	}
 }
 
-func handleCommand(upd *tg.Update) {
+func HandleCommand(ctx *bot.Context, upd *tg.Update) {
 	msg := upd.Message
 	cmd := msg.Command()
 	usr := msg.From.ID
 	cht := msg.Chat.ID
+
 
 	if states[usr] == nil {
 		states[usr] = &state{stage: stageIdle}
@@ -129,16 +91,16 @@ func handleCommand(upd *tg.Update) {
 
 	switch cmd {
 	case cmdStart.name:
-		err := db.AddUser(usr, cht)
+		err := db.AddUser(ctx, usr, cht)
 		if err != nil {
-			log.Error(usr, err, "failed adding user")
+			ctx.Logger.Errorw("failed adding user", "err", err)
 			return
 		}
 
 		m := tg.NewMessage(cht, startMessage)
 		m.ReplyMarkup = mainKeyboard
-		if _, err := bot.Send(m); err != nil {
-			log.Error(usr, err, "failed sending response to user")
+		if _, err := ctx.Bot.Send(m); err != nil {
+			ctx.Logger.Errorw("failed sending response to user", "err", err)
 			return
 		}
 
@@ -147,7 +109,7 @@ func handleCommand(upd *tg.Update) {
 
 	dm := tg.NewDeleteMessage(cht, msg.MessageID)
 	// ignore bot.Send errors because it always fails to deserialize response
-	bot.Send(dm)
+	ctx.Bot.Send(dm)
 }
 
 func joinMovies(movies []*db.Movie, showID bool, prefix ...string) string {
@@ -199,76 +161,80 @@ func formatMovie(mv *db.Movie, showID bool) string {
 	return fmt.Sprintf(strings.Join(fmtStr, ""), args...)
 }
 
-func handleUpdate(upd *tg.Update) {
+func HandleUpdate(ctx *bot.Context, upd *tg.Update) {
 	msg := upd.Message
 	txt := strings.TrimSpace(msg.Text)
 	usr := msg.From.ID
 	cht := msg.Chat.ID
 
-	state := states[usr]
+	st, ok := states[usr]
+	if !ok {
+		st = &state{stage: stageIdle}
+		states[usr] = st
+	}
 
 	var keyboard *tg.InlineKeyboardMarkup
 
-	switch state.stage {
+	switch st.stage {
 	case stageTitle:
 		keyboard = &keyboardAdd
-		state.stage = stageAdd
-		state.movie.Title = txt
+		st.stage = stageAdd
+		st.movie.Title = txt
 
 	case stageAltTitle:
 		keyboard = &keyboardAdd
-		state.stage = stageAdd
-		state.movie.AltTitle = txt
+		st.stage = stageAdd
+		st.movie.AltTitle = txt
 
 	case stageYear:
 		keyboard = &keyboardAdd
-		state.stage = stageAdd
+		st.stage = stageAdd
 
 		year, err := strconv.Atoi(txt)
 		if err != nil || year < 1850 || year > time.Now().UTC().Year()+2 {
 			cb := tg.NewCallbackWithAlert(time.Now().UTC().String(), fmt.Sprintf("The value %s doesn't seem a valid year, isn't it?", txt))
-			if _, err = bot.Request(cb); err != nil {
-				log.Error(usr, err, "failed sending alert message")
+			if _, err = ctx.Bot.Request(cb); err != nil {
+				ctx.Logger.Errorw("failed sending alert message", "err", err)
 			}
 		} else {
-			state.movie.Year = int16(year)
+			st.movie.Year = int16(year)
 		}
 
 	case stageChooseDel:
 		keyboard = &keyboardDel
-		state.movie = *movieByID(usr, txt)
-		state.stage = stageDel
+		st.movie = *movieByID(ctx, usr, txt)
+		st.stage = stageDel
 
 	case stageChooseRate:
 		keyboard = &keyboardRate
-		state.movie = *movieByID(usr, txt)
-		state.stage = stageRate
+		st.movie = *movieByID(ctx, usr, txt)
+		st.stage = stageRate
 
 	case stageChooseUnrate:
 		keyboard = &keyboardUnrate
-		state.movie = *movieByID(usr, txt)
-		state.stage = stageUnrate
+		st.movie = *movieByID(ctx, usr, txt)
+		st.stage = stageUnrate
 	}
 
-	states[usr] = state
-	replaceMessage(usr, cht, state.mainMessageID, formatMovieWithHeaders(&state.movie), keyboard, state.stage)
+	states[usr] = st
+	replaceMessage(ctx, usr, cht, st.mainMessageID, formatMovieWithHeaders(&st.movie), keyboard, st.stage)
 
 	dm := tg.NewDeleteMessage(cht, msg.MessageID)
 	// ignore bot.Send errors because it always fails to deserialize response
-	bot.Send(dm)
+	ctx.Bot.Send(dm)
 }
 
-func movieByID(usr int64, strID string) *db.Movie {
+func movieByID(ctx *bot.Context, usr int64, strID string) *db.Movie {
 	var mv *db.Movie
 	id, err := strconv.Atoi(strID)
 	if err != nil {
 		cb := tg.NewCallbackWithAlert(time.Now().UTC().String(), fmt.Sprintf("The value %s doesn't seem a valid movie ID, isn't it?", strID))
-		if _, err = bot.Request(cb); err != nil {
-			log.Error(usr, err, "failed sending alert message")
+		if _, err = ctx.Bot.Request(cb); err != nil {
+			ctx.Logger.Errorw("failed sending alert message", "err", err)
 		}
 		mv = &db.Movie{}
 	} else {
-		mv, _ = db.GetMovie(usr, id)
+		mv, _ = db.GetMovie(ctx, usr, id)
 	}
 
 	return mv

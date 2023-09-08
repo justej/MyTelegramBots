@@ -2,6 +2,8 @@ package bot
 
 import (
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 // Each bot should implement the Bot interface.
@@ -9,11 +11,11 @@ type Bot interface {
 	// Init method initializes the bot (connects to database, configures Telegram
 	// Bot, etc.) and returns a context that should be used in the bot. On
 	// failure, Init should return an error rather than panic.
-	Init(Config) (Context, error)
+	Init(*Config, *zap.SugaredLogger) (*Context, error)
 	// Run starts the process of handling messages from the Telegram Bot. Multiple
 	// bots are supposed to run concurrently, so Run should be started in a new
 	// goroutine.
-	Run(Context)
+	Run(*Context)
 }
 
 var (

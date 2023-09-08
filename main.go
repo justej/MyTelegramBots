@@ -4,10 +4,12 @@ import (
 	"botfarm/bot"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 
-	_ "botfarm/bots/FindingMemo"
 	_ "botfarm/bots/AlainDelon"
+	_ "botfarm/bots/FindingMemo"
+
 	"go.uber.org/zap"
 )
 
@@ -34,32 +36,34 @@ func readConfig(cfgFile string) (map[string]bot.Config, error) {
 }
 
 func main() {
-	log, syncLogs := getLogger()
+	logger, syncLogs := getLogger()
 	defer syncLogs()
 
 	cfgFile, ok := os.LookupEnv("CONFIG_FILE")
 	if !ok {
-		log.Fatalf("Configuration file name is't set")
+		logger.Fatalf("Configuration file name is't set")
 	}
 
 	botConfigs, err := readConfig(cfgFile)
 	if err != nil || botConfigs == nil {
-		log.With(zap.Error(err)).Fatalf("Couldn't read configuration from file %q", cfgFile)
+		logger.Fatalw(fmt.Sprintf("Couldn't read configuration from file %q", cfgFile), "err", err)
 	}
 
 	for _, rec := range bot.GetThemAll() {
 		cfg := botConfigs[rec.Name]
-		bot := *rec.Bot
+		b := *rec.Bot
+		l, _ := zap.NewDevelopment(zap.Fields(zap.String("ns", rec.Name)))
+		defer l.Sync()
 
-		ctx, err := bot.Init(cfg)
+		ctx, err := b.Init(&cfg, l.Sugar())
 		if err != nil {
-			log.With(zap.Error(err)).Errorf("Failed to initialize bot '%s'", rec.Name)
 			// we could've failed here but I prefer to keep running bots that can run
 			continue
 		}
 
-		ctx.Logger, _ = zap.NewDevelopment(zap.Fields(zap.String("ns", rec.Name)))
-		go bot.Run(ctx)
+		ctx.Logger.Infof("successfully initialized bot as %q", ctx.Bot.Self.UserName)
+
+		go b.Run(ctx)
 	}
 
 	stuckHere := make(<-chan int)

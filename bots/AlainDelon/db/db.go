@@ -1,40 +1,37 @@
 package db
 
 import (
+	"botfarm/bot"
 	"context"
 	"database/sql"
-
-	"botfarm/bots/AlainDelon/log"
+	"fmt"
 
 	"github.com/jmhodges/clock"
 )
 
 var (
-	db  *sql.DB
 	clk = clock.New()
 )
 
 var txIsoRepeatableRead = &sql.TxOptions{Isolation: sql.LevelRepeatableRead}
 
-func Init(connStr string) {
+func Init(connStr string) (*sql.DB, error) {
 	d, err := sql.Open("pgx", connStr)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	if err = d.Ping(); err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	log.Info("Successfully initialized database")
-
-	db = d
+	return d, nil
 }
 
-func AddUser(usr, cht int64) error {
-	tx, err := db.BeginTx(context.Background(), txIsoRepeatableRead)
+func AddUser(ctx *bot.Context, usr, cht int64) error {
+	tx, err := ctx.DB.BeginTx(context.Background(), txIsoRepeatableRead)
 	if err != nil {
-		log.Error(usr, err, "failed starting transaction on adding user")
+		ctx.Logger.Errorw("failed starting transaction on adding user", "err", err)
 		return err
 	}
 	defer tx.Rollback()
@@ -45,54 +42,54 @@ func AddUser(usr, cht int64) error {
 	case err == sql.ErrNoRows:
 		query := `INSERT INTO users (id, chat_id, created_on) VALUES ($1, $2, $3)`
 		if _, err = tx.Exec(query, usr, cht, clk.Now().UTC()); err != nil {
-			log.Error(usr, err, "failed adding user")
+			ctx.Logger.Errorw("failed adding user", "err", err)
 			return err
 		}
 
 	case err != nil:
-		log.Error(usr, err, "failed fetching chat ID")
+		ctx.Logger.Errorw("failed fetching chat ID", "err", err)
 		return err
 
 	default:
 		if cID == cht {
-			log.Infof("user is already up-to-date")
+			ctx.Logger.Info("user is already up-to-date")
 			return nil
 		}
 
 		if _, err = tx.Exec(`UPDATE users SET chat_id=$1`, cht); err != nil {
-			log.Error(usr, err, "failed updating chat_id")
+			ctx.Logger.Errorw("failed updating chat_id", "err", err)
 			return err
 		}
 	}
 
 	if err = tx.Commit(); err != nil {
-		log.Error(usr, err, "failed committing Tx for adding user")
+		ctx.Logger.Errorw("failed committing Tx for adding user", "err", err)
 		return err
 	}
 
 	return nil
 }
 
-func AddMovie(usr int64, mv *Movie) error {
+func AddMovie(ctx *bot.Context, usr int64, mv *Movie) error {
 	query := `INSERT INTO movies (title, alt_title, year, created_on, created_by) VALUES ($1, $2, $3, $4, $5)`
-	if _, err := db.Exec(query, mv.Title, mv.AltTitle, mv.Year, clk.Now().UTC(), usr); err != nil {
-		log.Error(usr, err, "failed inserting movie")
+	if _, err := ctx.DB.Exec(query, mv.Title, mv.AltTitle, mv.Year, clk.Now().UTC(), usr); err != nil {
+		ctx.Logger.Errorw("failed inserting movie", "err", err)
 		return err
 	}
 
 	return nil
 }
 
-func DelMovie(usr int64, movieID int) error {
-	if _, err := db.Exec(`DELETE FROM movies WHERE id=$1`, movieID); err != nil {
-		log.Error(usr, err, "failed deleting movie")
+func DelMovie(ctx *bot.Context, usr int64, movieID int) error {
+	if _, err := ctx.DB.Exec(`DELETE FROM movies WHERE id=$1`, movieID); err != nil {
+		ctx.Logger.Errorw("failed deleting movie", "err", err)
 		return err
 	}
 
 	return nil
 }
 
-func RandomMovie(usr int64) (*Movie, error) {
+func RandomMovie(ctx *bot.Context, usr int64) (*Movie, error) {
 	query := `SELECT id, title, alt_title, year, rating
 FROM movies m
 	LEFT JOIN (
@@ -100,21 +97,21 @@ FROM movies m
 		FROM ratings
 	) r ON m.id=r.movie_id AND r.movie_id=$1
 ORDER BY RANDOM() LIMIT 1`
-	mv, err := getMovie(usr, query, usr)
+	mv, err := getMovie(ctx, usr, query, usr)
 	if err != nil {
-		log.Error(usr, err, "failed fetching random movie")
+		ctx.Logger.Errorw("failed fetching random movie", "err", err)
 	}
 
 	return mv, nil
 }
 
-func getMovie(usr int64, query string, args ...any) (*Movie, error) {
+func getMovie(ctx *bot.Context, usr int64, query string, args ...any) (*Movie, error) {
 	var altTitle sql.NullString
 	var year sql.NullInt16
 	var rating sql.NullFloat64
 	var mv Movie
 
-	if err := db.QueryRow(query, args...).Scan(&mv.ID, &mv.Title, &altTitle, &year, &rating); err != nil {
+	if err := ctx.DB.QueryRow(query, args...).Scan(&mv.ID, &mv.Title, &altTitle, &year, &rating); err != nil {
 		return &Movie{}, err
 	}
 
@@ -136,19 +133,19 @@ func getMovie(usr int64, query string, args ...any) (*Movie, error) {
 	return &mv, nil
 }
 
-func RateMovie(usr int64, movieID int, rating int) error {
+func RateMovie(ctx *bot.Context, usr int64, movieID int, rating int) error {
 	var r int
-	err := db.QueryRow(`SELECT rating FROM ratings WHERE user_id=$1 AND movie_id=$2`, usr, movieID).Scan(&r)
+	err := ctx.DB.QueryRow(`SELECT rating FROM ratings WHERE user_id=$1 AND movie_id=$2`, usr, movieID).Scan(&r)
 	switch {
 	case err == sql.ErrNoRows:
 		query := `INSERT INTO ratings (user_id, movie_id, rating, created_on) VALUES ($1, $2, $3, $4)`
-		if _, err := db.Exec(query, usr, movieID, rating, clk.Now().UTC()); err != nil {
-			log.Errorf(usr, err, "failed rating movie %d", movieID)
+		if _, err := ctx.DB.Exec(query, usr, movieID, rating, clk.Now().UTC()); err != nil {
+			ctx.Logger.Errorw(fmt.Sprintf("failed rating movie %d", movieID), "err", err)
 			return err
 		}
 
 	case err != nil:
-		log.Errorf(usr, err, "failed rating movie %d", movieID)
+		ctx.Logger.Error(fmt.Sprintf("failed rating movie %d", movieID), "err", err)
 		return err
 
 	default:
@@ -157,8 +154,8 @@ func RateMovie(usr int64, movieID int, rating int) error {
 		}
 
 		query := `UPDATE ratings SET rating=$1, updated_on=$2 WHERE user_id=$3 AND movie_id=$4`
-		if _, err := db.Exec(query, rating, clk.Now().UTC(), usr, movieID); err != nil {
-			log.Errorf(usr, err, "failed rating movie %d", movieID)
+		if _, err := ctx.DB.Exec(query, rating, clk.Now().UTC(), usr, movieID); err != nil {
+			ctx.Logger.Errorw(fmt.Sprintf("failed rating movie %d", movieID), "err", err)
 			return err
 		}
 	}
@@ -166,21 +163,21 @@ func RateMovie(usr int64, movieID int, rating int) error {
 	return nil
 }
 
-func UnrateMovie(usr int64, movie int) (bool, error) {
+func UnrateMovie(ctx *bot.Context, usr int64, movie int) (bool, error) {
 	var r int
-	err := db.QueryRow(`SELECT rating FROM ratings WHERE user_id=$1 AND movie_id=$2`, usr, movie).Scan(&r)
+	err := ctx.DB.QueryRow(`SELECT rating FROM ratings WHERE user_id=$1 AND movie_id=$2`, usr, movie).Scan(&r)
 	switch {
 	case err == sql.ErrNoRows:
 		return false, nil
 
 	case err != nil:
-		log.Errorf(usr, err, "failed unrating movie %d", movie)
+		ctx.Logger.Errorw(fmt.Sprintf("failed unrating movie %d", movie), "err", err)
 		return false, err
 
 	default:
 		query := `DELETE FROM ratings WHERE user_id=$1 AND movie_id=$2`
-		if _, err := db.Exec(query, usr, movie); err != nil {
-			log.Errorf(usr, err, "failed unrating movie %d", movie)
+		if _, err := ctx.DB.Exec(query, usr, movie); err != nil {
+			ctx.Logger.Errorw(fmt.Sprintf("failed unrating movie %d", movie), "err", err)
 			return false, err
 		}
 	}
@@ -204,51 +201,42 @@ const (
 	MovieStateAll
 )
 
-func listMovies(usr int64, rows *sql.Rows) ([]*Movie, error) {
-	var err error = nil
+func listMovies(ctx *bot.Context, usr int64, rows *sql.Rows) ([]*Movie, error) {
+	var err error
 	movies := []*Movie{}
 	for rows.Next() {
-		var m *Movie
-		m, err = extractMovie(err, rows, usr)
-		if err != nil {
+		var mv Movie
+		var altTitle sql.NullString
+		var year sql.NullInt16
+		var rating sql.NullFloat64
+		if err = rows.Scan(&mv.ID, &mv.Title, &altTitle, &year, &rating); err != nil {
+			ctx.Logger.Errorw("couldn't read attributes of a movie", "err", err)
 			continue
 		}
-		movies = append(movies, m)
+
+		if altTitle.Valid {
+			mv.AltTitle = altTitle.String
+		}
+
+		if year.Valid {
+			mv.Year = year.Int16
+		} else {
+			mv.Year = -1
+		}
+
+		if rating.Valid {
+			mv.Rating = float32(rating.Float64)
+		} else {
+			mv.Rating = -1
+		}
+		
+		movies = append(movies, &mv)
 	}
 
 	return movies, err
 }
 
-func extractMovie(err error, rows *sql.Rows, usr int64) (*Movie, error) {
-	var mv Movie
-	var altTitle sql.NullString
-	var year sql.NullInt16
-	var rating sql.NullFloat64
-	if err = rows.Scan(&mv.ID, &mv.Title, &altTitle, &year, &rating); err != nil {
-		log.Error(usr, err, "couldn't read attributes of a movie")
-		return nil, err
-	}
-
-	if altTitle.Valid {
-		mv.AltTitle = altTitle.String
-	}
-
-	if year.Valid {
-		mv.Year = year.Int16
-	} else {
-		mv.Year = -1
-	}
-
-	if rating.Valid {
-		mv.Rating = float32(rating.Float64)
-	} else {
-		mv.Rating = -1
-	}
-
-	return &mv, err
-}
-
-func ListSeenMovies(usr int64) ([]*Movie, error) {
+func ListSeenMovies(ctx *bot.Context, usr int64) ([]*Movie, error) {
 	query := `SELECT m.id, m.title, m.alt_title, m.year, r2.avg_rating
 FROM movies m
 	JOIN ratings r1 ON m.id=r1.movie_id AND r1.user_id=$1
@@ -258,17 +246,17 @@ FROM movies m
 		GROUP BY movie_id
 	) r2 ON m.id=r2.movie_id
 ORDER BY m.updated_on, avg_rating DESC NULLS LAST`
-	rows, err := db.Query(query, usr)
+	rows, err := ctx.DB.Query(query, usr)
 	if err != nil {
-		log.Error(usr, err, "failed querying seen movies")
+		ctx.Logger.Errorw("failed querying seen movies", "err", err)
 		return []*Movie{}, nil
 	}
 	defer rows.Close()
 
-	return listMovies(usr, rows)
+	return listMovies(ctx, usr, rows)
 }
 
-func ListUnseenMovies(usr int64) ([]*Movie, error) {
+func ListUnseenMovies(ctx *bot.Context, usr int64) ([]*Movie, error) {
 	query := `SELECT m.id, m.title, m.alt_title, m.year, r1.avg_rating
 FROM movies m
 	LEFT JOIN (
@@ -283,17 +271,17 @@ FROM movies m
 	) r2 ON m.id=r2.movie_id
 WHERE r2.movie_id IS NULL
 ORDER BY created_on, avg_rating DESC NULLS LAST`
-	rows, err := db.Query(query, usr)
+	rows, err := ctx.DB.Query(query, usr)
 	if err != nil {
-		log.Error(usr, err, "failed querying seen movies")
+		ctx.Logger.Errorw("failed querying seen movies", "err", err)
 		return []*Movie{}, nil
 	}
 	defer rows.Close()
 
-	return listMovies(usr, rows)
+	return listMovies(ctx, usr, rows)
 }
 
-func ListAllMovies(usr int64) ([]*Movie, error) {
+func ListAllMovies(ctx *bot.Context, usr int64) ([]*Movie, error) {
 	query := `SELECT m.id, m.title, m.alt_title, m.year, r.avg_rating
 FROM movies m
 	LEFT JOIN (
@@ -302,33 +290,33 @@ FROM movies m
 		GROUP BY movie_id
 	) r ON m.id=r.movie_id
 ORDER BY created_on, avg_rating DESC NULLS LAST`
-	rows, err := db.Query(query)
+	rows, err := ctx.DB.Query(query)
 	if err != nil {
-		log.Error(usr, err, "failed querying all movies")
+		ctx.Logger.Errorw("failed querying all movies", "err", err)
 		return []*Movie{}, nil
 	}
 	defer rows.Close()
 
-	return listMovies(usr, rows)
+	return listMovies(ctx, usr, rows)
 }
 
-func ListMyMovies(usr int64) ([]*Movie, error) {
+func ListMyMovies(ctx *bot.Context, usr int64) ([]*Movie, error) {
 	query := `SELECT m.id, m.title, m.alt_title, m.year, r.rating
 	FROM movies m 
 		LEFT JOIN ratings r ON m.id=r.movie_id AND r.user_id=$1
 	WHERE m.created_by=$1
 	ORDER BY m.created_on, title DESC`
-	rows, err := db.Query(query, usr)
+	rows, err := ctx.DB.Query(query, usr)
 	if err != nil {
-		log.Error(usr, err, "failed querying all movies")
+		ctx.Logger.Errorw("failed querying all movies", "err", err)
 		return []*Movie{}, nil
 	}
 	defer rows.Close()
 
-	return listMovies(usr, rows)
+	return listMovies(ctx, usr, rows)
 }
 
-func ListTopMovies(usr int64) ([]*Movie, error) {
+func ListTopMovies(ctx *bot.Context, usr int64) ([]*Movie, error) {
 	query := `SELECT m.id, m.title, m.alt_title, m.year, r.avg_rating
 FROM movies m
 	LEFT JOIN (
@@ -338,17 +326,17 @@ FROM movies m
 	) r ON m.id=r.movie_id
 ORDER BY avg_rating DESC NULLS LAST
 LIMIT 10`
-	rows, err := db.Query(query)
+	rows, err := ctx.DB.Query(query)
 	if err != nil {
-		log.Error(usr, err, "failed querying top movies")
+		ctx.Logger.Errorw("failed querying top movies", "err", err)
 		return []*Movie{}, err
 	}
 	defer rows.Close()
 
-	return listMovies(usr, rows)
+	return listMovies(ctx, usr, rows)
 }
 
-func ListLatestMovies(usr int64) ([]*Movie, error) {
+func ListLatestMovies(ctx *bot.Context, usr int64) ([]*Movie, error) {
 	query := `SELECT m.id, m.title, m.alt_title, m.year, r.avg_rating
 FROM movies m
 	LEFT JOIN (
@@ -358,21 +346,21 @@ FROM movies m
 	) r ON m.id=r.movie_id
 ORDER BY created_on DESC NULLS LAST
 LIMIT 10`
-	rows, err := db.Query(query)
+	rows, err := ctx.DB.Query(query)
 	if err != nil {
-		log.Error(usr, err, "failed querying latest movies")
+		ctx.Logger.Errorw("failed querying latest movies", "err", err)
 		return []*Movie{}, err
 	}
 	defer rows.Close()
 
-	return listMovies(usr, rows)
+	return listMovies(ctx, usr, rows)
 }
 
-func GetMovie(usr int64, id int) (*Movie, error) {
+func GetMovie(ctx *bot.Context, usr int64, id int) (*Movie, error) {
 	query := `SELECT id, title, alt_title, year, NULL FROM movies WHERE id=$1`
-	mv, err := getMovie(usr, query, id)
+	mv, err := getMovie(ctx, usr, query, id)
 	if err != nil {
-		log.Errorf(usr, err, "failed getting movie %d", id)
+		ctx.Logger.Errorw(fmt.Sprintf("failed getting movie %d", id), "err", err)
 		return &Movie{}, err
 	}
 

@@ -35,18 +35,19 @@ var (
 
 type State int
 
-func Init(tgToken string, d *database.Database) {
+func Init(tgToken string, d *database.Database) error {
 	db = d
 	b, err := tg.NewBotAPI(tgToken)
 	if err != nil {
 		log.Println(err)
-		return
+		return err
 	}
 	bot = b
 
 	bot.Debug = false
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
+	return nil
 }
 
 func Run() {

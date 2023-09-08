@@ -6,20 +6,25 @@ import (
 	"botfarm/bots/findingmemo/reminder"
 	"botfarm/bots/findingmemo/tgbot"
 	"botfarm/bots/findingmemo/timezone"
+
+	"go.uber.org/zap"
 )
 
 type FindingMemo struct{}
 
-func (b *FindingMemo) Init(cfg bot.Config) (bot.Context, error) {
+func (fm *FindingMemo) Init(cfg *bot.Config, l *zap.SugaredLogger) (*bot.Context, error) {
 	timezone.Init()
 	db := database.Init(cfg.DBConnStr)
-	tgbot.Init(cfg.TgToken, db)
+	err := tgbot.Init(cfg.TgToken, db)
+	if err != nil {
+		return nil, err
+	}
 	reminder.Init(db, tgbot.SendReminder)
 
-	return bot.Context{}, nil
+	return &bot.Context{}, nil
 }
 
-func (b *FindingMemo) Run(ctx bot.Context) {
+func (fm *FindingMemo) Run(ctx *bot.Context) {
 	tgbot.Run()
 }
 

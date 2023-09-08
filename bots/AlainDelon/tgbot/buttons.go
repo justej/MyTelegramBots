@@ -1,8 +1,8 @@
 package tgbot
 
 import (
+	"botfarm/bot"
 	"botfarm/bots/AlainDelon/db"
-	"botfarm/bots/AlainDelon/log"
 	"fmt"
 	"strconv"
 	"strings"
@@ -154,7 +154,7 @@ var (
 	)
 )
 
-func handleCallbackQuery(upd *tg.Update) {
+func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 	cbq := upd.CallbackQuery
 	usr := cbq.From.ID
 	cht := cbq.Message.Chat.ID
@@ -202,128 +202,128 @@ func handleCallbackQuery(upd *tg.Update) {
 			message = mainMessage
 		}
 
-		replaceMessage(usr, cht, mID, message, keyboard, stage)
+		replaceMessage(ctx, usr, cht, mID, message, keyboard, stage)
 
 	case cbqExecute:
 		switch state.stage {
 		case stageAdd:
 			if len(state.movie.Title) > 0 {
-				db.AddMovie(usr, &state.movie)
+				db.AddMovie(ctx, usr, &state.movie)
 			} else {
-				alertIncompleteData(usr, "Movie needs a non-empty title")
+				alertIncompleteData(ctx, "Movie needs a non-empty title")
 			}
 		case stageDel:
 			if len(state.movie.Title) != 0 {
-				db.DelMovie(usr, state.movie.ID)
+				db.DelMovie(ctx, usr, state.movie.ID)
 			}
 		case stageRate:
-			db.RateMovie(usr, state.movie.ID, int(state.movie.Rating))
+			db.RateMovie(ctx, usr, state.movie.ID, int(state.movie.Rating))
 		case stageUnrate:
-			db.UnrateMovie(usr, state.movie.ID)
+			db.UnrateMovie(ctx, usr, state.movie.ID)
 		default:
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
 
 		states[usr].movie = db.Movie{}
-		replaceMessage(usr, cht, mID, mainMessage, &mainKeyboard, stageIdle)
+		replaceMessage(ctx, usr, cht, mID, mainMessage, &mainKeyboard, stageIdle)
 
 	case cbqAdd:
 		if state.stage != stageIdle {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(usr, cht, mID, prefixMovieAdd+formatMovieWithHeaders(&state.movie), &keyboardAdd, stageAdd)
+		replaceMessage(ctx, usr, cht, mID, prefixMovieAdd+formatMovieWithHeaders(&state.movie), &keyboardAdd, stageAdd)
 
 	case cbqDel:
 		if state.stage != stageIdle {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(usr, cht, mID, prefixMovieToDelete+formatMovieWithHeaders(&state.movie), &keyboardDel, stageDel)
+		replaceMessage(ctx, usr, cht, mID, prefixMovieToDelete+formatMovieWithHeaders(&state.movie), &keyboardDel, stageDel)
 
 	case cbqRate:
 		if state.stage != stageIdle {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(usr, cht, mID, prefixMovieToRate+formatMovieWithHeaders(&state.movie), &keyboardRate, stageRate)
+		replaceMessage(ctx, usr, cht, mID, prefixMovieToRate+formatMovieWithHeaders(&state.movie), &keyboardRate, stageRate)
 
 	case cbqUnrate:
 		if state.stage != stageIdle {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(usr, cht, mID, prefixMovieToUnrate+formatMovieWithHeaders(&state.movie), &keyboardUnrate, stageUnrate)
+		replaceMessage(ctx, usr, cht, mID, prefixMovieToUnrate+formatMovieWithHeaders(&state.movie), &keyboardUnrate, stageUnrate)
 
 	case cbqAmazeMe:
 		if state.stage != stageIdle {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
 
-		mv, err := db.RandomMovie(usr)
+		mv, err := db.RandomMovie(ctx, usr)
 		if err != nil {
 			return
 		}
 
 		movieStr := "Random movie:\n\n" + formatMovie(mv, false)
-		replaceMessage(usr, cht, mID, movieStr, &keyboardBack, stageAmazeMe)
+		replaceMessage(ctx, usr, cht, mID, movieStr, &keyboardBack, stageAmazeMe)
 
 	case cbqWatched:
-		lst, _ := db.ListSeenMovies(usr)
-		replaceMessage(usr, cht, mID, joinMovies(lst, false, "List of watched movies\n\n"), &keyboardBack, stageList)
+		lst, _ := db.ListSeenMovies(ctx, usr)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "List of watched movies\n\n"), &keyboardBack, stageList)
 
 	case cbqUnwatched:
-		lst, _ := db.ListUnseenMovies(usr)
-		replaceMessage(usr, cht, mID, joinMovies(lst, false, "List of unwatched movies\n\n"), &keyboardBack, stageList)
+		lst, _ := db.ListUnseenMovies(ctx, usr)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "List of unwatched movies\n\n"), &keyboardBack, stageList)
 
 	case cbqAll:
-		lst, _ := db.ListAllMovies(usr)
-		replaceMessage(usr, cht, mID, joinMovies(lst, false, "All movies on the list\n\n"), &keyboardBack, stageList)
+		lst, _ := db.ListAllMovies(ctx, usr)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "All movies on the list\n\n"), &keyboardBack, stageList)
 
 	case cbqMy:
-		lst, _ := db.ListMyMovies(usr)
-		replaceMessage(usr, cht, mID, joinMovies(lst, false, "These are movies you added. The rates are also yours\n\n"), &keyboardBack, stageList)
+		lst, _ := db.ListMyMovies(ctx, usr)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "These are movies you added. The rates are also yours\n\n"), &keyboardBack, stageList)
 
 	case cbqTop:
-		lst, _ := db.ListTopMovies(usr)
-		replaceMessage(usr, cht, mID, joinMovies(lst, false, "Top 10 movies by rate\n\n"), &keyboardBack, stageList)
+		lst, _ := db.ListTopMovies(ctx, usr)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "Top 10 movies by rate\n\n"), &keyboardBack, stageList)
 
 	case cbqLast:
-		lst, _ := db.ListLatestMovies(usr)
-		replaceMessage(usr, cht, mID, joinMovies(lst, false, "10 latest movies added\n\n"), &keyboardBack, stageList)
+		lst, _ := db.ListLatestMovies(ctx, usr)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "10 latest movies added\n\n"), &keyboardBack, stageList)
 
 	case cbqHelp:
-		replaceMessage(usr, cht, mID, helpMessage, &keyboardBack, stageHelp)
+		replaceMessage(ctx, usr, cht, mID, helpMessage, &keyboardBack, stageHelp)
 	case cbqTitle:
 		if state.stage != stageAdd {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(usr, cht, mID, "What's the name of the movie?", &keyboardBack, stageTitle)
+		replaceMessage(ctx, usr, cht, mID, "What's the name of the movie?", &keyboardBack, stageTitle)
 
 	case cbqAltTitle:
 		if state.stage != stageAdd {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(usr, cht, mID, "Oh, the movie has an alternative name? What's that?", &keyboardBack, stageAltTitle)
+		replaceMessage(ctx, usr, cht, mID, "Oh, the movie has an alternative name? What's that?", &keyboardBack, stageAltTitle)
 
 	case cbqYear:
 		if state.stage != stageAdd {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(usr, cht, mID, "Do you know the issue year?", &keyboardBack, stageYear)
+		replaceMessage(ctx, usr, cht, mID, "Do you know the issue year?", &keyboardBack, stageYear)
 
 	case cbqChooseMovie:
 		if state.stage != stageDel && state.stage != stageRate && state.stage != stageUnrate {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
 
-		lst, _ := db.ListAllMovies(usr)
+		lst, _ := db.ListAllMovies(ctx, usr)
 
 		var stage stage
 		switch state.stage {
@@ -334,14 +334,14 @@ func handleCallbackQuery(upd *tg.Update) {
 		case stageUnrate:
 			stage = stageChooseUnrate
 		}
-		replaceMessage(usr, cht, mID, joinMovies(lst, true, "Enter movie ID:\n\n"), &keyboardBack, stage)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, true, "Enter movie ID:\n\n"), &keyboardBack, stage)
 
 	case cbqSetRating:
 		if state.stage != stageRate {
-			fixState(cbq)
+			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(usr, cht, mID, "Set your rating", &keyboardRateOptions, stageRate)
+		replaceMessage(ctx, usr, cht, mID, "Set your rating", &keyboardRateOptions, stageRate)
 
 	case cbq1Star:
 		fallthrough
@@ -354,21 +354,21 @@ func handleCallbackQuery(upd *tg.Update) {
 	case cbq5Star:
 		r, err := strconv.Atoi(cbq.Data)
 		if err != nil {
-			log.Error(usr, err, "impossible came true")
+			ctx.Logger.Errorw("impossible came true", "err", err)
 		}
 
 		state.movie.Rating = float32(r)
-		replaceMessage(usr, cht, mID, prefixMovieToRate+formatMovieWithHeaders(&state.movie), &keyboardRate, stageRate)
+		replaceMessage(ctx, usr, cht, mID, prefixMovieToRate+formatMovieWithHeaders(&state.movie), &keyboardRate, stageRate)
 
 	}
 }
 
-func alertIncompleteData(usr int64, s string) {
+func alertIncompleteData(ctx *bot.Context, s string) {
 	// TODO: show alert
-	log.Warn(usr, "movie doesn't have a title")
+	ctx.Logger.Warn("movie doesn't have a title")
 }
 
-func replaceMessage(usr, cht int64, msgID int, msg string, kbMarkup *tg.InlineKeyboardMarkup, stg stage) bool {
+func replaceMessage(ctx *bot.Context, usr, cht int64, msgID int, msg string, kbMarkup *tg.InlineKeyboardMarkup, stg stage) bool {
 	var upd tg.EditMessageTextConfig
 	if kbMarkup == nil {
 		upd = tg.NewEditMessageText(cht, msgID, msg)
@@ -376,8 +376,8 @@ func replaceMessage(usr, cht int64, msgID int, msg string, kbMarkup *tg.InlineKe
 		upd = tg.NewEditMessageTextAndMarkup(cht, msgID, msg, *kbMarkup)
 	}
 
-	if _, err := bot.Send(upd); err != nil {
-		log.Error(usr, err, "failed updating message")
+	if _, err := ctx.Bot.Send(upd); err != nil {
+		ctx.Logger.Errorw("failed updating message", "err", err)
 		return false
 	}
 
@@ -418,15 +418,15 @@ func formatMovieWithHeaders(mv *db.Movie) string {
 	return fmt.Sprintf(strings.Join(fmtStr, ""), args...)
 }
 
-func fixState(cbq *tg.CallbackQuery) {
+func fixState(ctx *bot.Context, cbq *tg.CallbackQuery) {
 	usr := cbq.From.ID
 	cht := cbq.Message.From.ID
 
 	cb := tg.NewCallback(cbq.ID, "Message is outdated, can't continue")
-	if _, err := bot.Request(cb); err != nil {
-		log.Error(usr, err, "failed sending callback")
+	if _, err := ctx.Bot.Request(cb); err != nil {
+		ctx.Logger.Errorw("failed sending callback", "err", err)
 		// no return
 	}
 
-	replaceMessage(usr, cht, cbq.Message.MessageID, mainMessage, &mainKeyboard, stageIdle)
+	replaceMessage(ctx, usr, cht, cbq.Message.MessageID, mainMessage, &mainKeyboard, stageIdle)
 }
