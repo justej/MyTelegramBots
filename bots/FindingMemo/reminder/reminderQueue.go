@@ -35,7 +35,7 @@ func (rq *reminderQueue) Push(r any) {
 	}
 
 	// first save the reminder, then save a pointer to it
-	rq.reminders[reminder.userID] = reminder
+	rq.reminders[reminder.usr] = reminder
 	rq.backingArray = append(rq.backingArray, reminder)
 }
 
@@ -48,14 +48,14 @@ func (rq *reminderQueue) Pop() any {
 	n := len(ba)
 	rq.backingArray = ba[:n-1]
 	popped := ba[n-1]
-	r := rq.reminders[popped.userID]
-	delete(rq.reminders, popped.userID)
+	r := rq.reminders[popped.usr]
+	delete(rq.reminders, popped.usr)
 
 	return r
 }
 
-func (rq *reminderQueue) Delete(u int64) {
-	delete(rq.reminders, u)
+func (rq *reminderQueue) Delete(usr int64) {
+	delete(rq.reminders, usr)
 }
 
 func (rq *reminderQueue) Peek() any {
@@ -63,5 +63,5 @@ func (rq *reminderQueue) Peek() any {
 		return nil
 	}
 
-	return rq.reminders[rq.backingArray[0].userID]
+	return rq.reminders[rq.backingArray[0].usr]
 }

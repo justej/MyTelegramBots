@@ -36,39 +36,39 @@ func Init(connStr string) (*sql.DB, error) {
 	return d, nil
 }
 
-func ListAllMemos(ctx *bot.Context, u, c int64, short bool) (string, string) {
-	rows, err := getMemosRows(ctx, u, c)
+func ListAllMemos(ctx *bot.Context, cht int64, short bool) (string, string) {
+	rows, err := getMemosRows(ctx, cht)
 	if err != nil {
 		ctx.Logger.Errorw("failed querying memos", "err", err)
 		return "", ""
 	}
 	defer rows.Close()
 
-	active, done := extractMemos(ctx, rows, u)
+	active, done := extractMemos(ctx, rows)
 	return listMemos(active, short), listMemos(done, short)
 }
 
-func ListFullMemos(ctx *bot.Context, u, c int64, short bool) string {
-	rows, err := getMemosRows(ctx, u, c)
+func ListFullMemos(ctx *bot.Context, cht int64, short bool) string {
+	rows, err := getMemosRows(ctx, cht)
 	if err != nil {
 		ctx.Logger.Errorw("failed querying memos","err",  err)
 		return ""
 	}
 	defer rows.Close()
 
-	activeMemos, _ := extractMemos(ctx, rows, u)
+	activeMemos, _ := extractMemos(ctx, rows)
 	return listMemos(activeMemos, short)
 }
 
-func ListFirstMemos(ctx *bot.Context, u, c int64, n int, short bool) string {
-	rows, err := getMemosRows(ctx, u, c)
+func ListFirstMemos(ctx *bot.Context, cht int64, n int, short bool) string {
+	rows, err := getMemosRows(ctx, cht)
 	if err != nil {
 		ctx.Logger.Errorw("failed querying memos", "err", err)
 		return ""
 	}
 	defer rows.Close()
 
-	activeMemos, _ := extractMemos(ctx, rows, u)
+	activeMemos, _ := extractMemos(ctx, rows)
 	if len(activeMemos) < n {
 		n = len(activeMemos)
 	}
@@ -82,36 +82,24 @@ func ListFirstMemos(ctx *bot.Context, u, c int64, n int, short bool) string {
 }
 
 // Done marks the task as done
-func Done(ctx *bot.Context, u, c int64, n int) {
-	markAs(ctx, memoStateDone, u, c, n)
+func Done(ctx *bot.Context, cht int64, n int) {
+	markAs(ctx, memoStateDone, cht, n)
 }
 
 // Delete soft-deletes the task
-func Delete(ctx *bot.Context, u, c int64, n int) {
-	markAs(ctx, memoStateDeleted, u, c, n)
+func Delete(ctx *bot.Context, cht int64, n int) {
+	markAs(ctx, memoStateDeleted, cht, n)
 }
 
-func GetLenDone(ctx *bot.Context, u, c int64) int {
-	rows, err := getMemosRows(ctx, u, c)
+func GetLenMemos(ctx *bot.Context, cht int64) int {
+	rows, err := getMemosRows(ctx, cht)
 	if err != nil {
 		ctx.Logger.Errorw("failed to count done memos", "err", err)
 		return 0
 	}
 	defer rows.Close()
 
-	_, doneMemos := extractMemos(ctx, rows, u)
-	return len(doneMemos)
-}
-
-func GetLenMemos(ctx *bot.Context, u, c int64) int {
-	rows, err := getMemosRows(ctx, u, c)
-	if err != nil {
-		ctx.Logger.Errorw("failed to count done memos", "err", err)
-		return 0
-	}
-	defer rows.Close()
-
-	activeMemos, _ := extractMemos(ctx, rows, u)
+	activeMemos, _ := extractMemos(ctx, rows)
 	return len(activeMemos)
 }
 

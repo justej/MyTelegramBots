@@ -27,8 +27,10 @@ func (ad *AlainDelon) Init(cfg *bot.Config, l *zap.SugaredLogger) (*bot.Context,
 
 	b.Debug = false
 
-	ctx := bot.Context{Bot: b, DB: d, Logger: l}
-	return &ctx, nil
+	l.Infof("authorized on account %q", b.Self.UserName)
+
+	ctx := &bot.Context{Bot: b, DB: d, Logger: l}
+	return ctx, nil
 }
 
 func (ad *AlainDelon) Run(ctx *bot.Context) {
