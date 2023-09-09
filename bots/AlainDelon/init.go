@@ -15,13 +15,13 @@ type AlainDelon struct{}
 func (ad *AlainDelon) Init(cfg *bot.Config, l *zap.SugaredLogger) (*bot.Context, error) {
 	d, err := db.Init(cfg.DBConnStr)
 	if err != nil {
-		l.Error("failed to initialize database")
+		l.Errorw("failed to initialize database", "err", err)
 		return nil, err
 	}
 
 	b, err := tg.NewBotAPI(cfg.TgToken)
 	if err != nil {
-		l.Error("failed to initialize Telegram Bot")
+		l.Errorw("failed to initialize Telegram Bot", "err", err)
 		return nil, err
 	}
 

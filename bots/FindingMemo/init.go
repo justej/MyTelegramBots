@@ -28,7 +28,7 @@ func (fm *FindingMemo) Init(cfg *bot.Config, l *zap.SugaredLogger) (*bot.Context
 
 	b, err := tg.NewBotAPI(cfg.TgToken)
 	if err != nil {
-		l.Error("failed to initialize Telegram Bot")
+		l.Errorw("failed to initialize Telegram Bot", "err", err)
 		return nil, err
 	}
 
