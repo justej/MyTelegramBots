@@ -109,7 +109,7 @@ func updateTimeZone(ctx *bot.Context, usr int64, loc *tg.Location) string {
 	ctx.Logger.Debugf("handling location: (%f, %f) -> (%f; %f) -> %s",
 		l.Latitude, l.Longitude, zone.GeoLocation.Latitude, zone.GeoLocation.Longitude, zone.TZ)
 
-	ok := db.UpdateTZ(ctx, zone.GeoLocation, zone.TZ)
+	ok := db.UpdateTZ(ctx, usr, zone.GeoLocation, zone.TZ)
 	if !ok {
 		return ""
 	}

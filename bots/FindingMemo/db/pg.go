@@ -225,8 +225,8 @@ WHERE user_id = $2`, at, usr)
 	return err == nil
 }
 
-func UpdateTZ(ctx *bot.Context, loc *timezone.GeoLocation, tz string) bool {
-	_, err := ctx.DB.Exec(`UPDATE users SET latitude=$1, longitude=$2, timezone=$3`, loc.Latitude, loc.Longitude, tz)
+func UpdateTZ(ctx *bot.Context, usr int64, loc *timezone.GeoLocation, tz string) bool {
+	_, err := ctx.DB.Exec(`UPDATE users SET latitude=$1, longitude=$2, timezone=$3 WHERE user_id=$4`, loc.Latitude, loc.Longitude, tz, usr)
 	if err != nil {
 		ctx.Logger.Errorw("failed updating time zone", "err", err)
 	}
