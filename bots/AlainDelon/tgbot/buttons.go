@@ -191,27 +191,27 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 
 	case cbqWatched:
 		lst, _ := db.ListSeenMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "You already watched these movies"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "You already watched these movies\n\n"), &keyboardBack, stageList)
 
 	case cbqUnwatched:
 		lst, _ := db.ListUnseenMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "You haven't seen these movies"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "You haven't seen these movies\n\n"), &keyboardBack, stageList)
 
 	case cbqAll:
 		lst, _ := db.ListAllMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "All movies"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "All movies\n\n"), &keyboardBack, stageList)
 
 	case cbqMy:
 		lst, _ := db.ListMyMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "The movies you added (the rates are also yours)"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "The movies you added (the rates are also yours)\n\n"), &keyboardBack, stageList)
 
 	case cbqTop:
 		lst, _ := db.ListTopMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "Top 10 rated movies"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "Top 10 rated movies\n\n"), &keyboardBack, stageList)
 
 	case cbqLast:
 		lst, _ := db.ListLatestMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "10 latest movies added"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "10 latest movies added\n\n"), &keyboardBack, stageList)
 
 	case cbqHelp:
 		replaceMessage(ctx, usr, cht, mID, helpMessage, &keyboardBack, stageHelp)
