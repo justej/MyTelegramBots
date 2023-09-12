@@ -164,7 +164,7 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 			fixState(ctx, cbq)
 			return
 		}
-		lst, _ := db.ListAllMovies(ctx, usr)
+		lst, _ := db.ListMyMovies(ctx, usr)
 		keyboard := makeChooseMovieKeyboard(ctx, lst)
 		replaceMessage(ctx, usr, cht, mID, "Pick the movie to delete", &keyboard, stageChooseDel)
 
@@ -182,7 +182,7 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 			fixState(ctx, cbq)
 			return
 		}
-		lst, _ := db.ListAllMovies(ctx, usr)
+		lst, _ := db.ListSeenMovies(ctx, usr)
 		keyboard := makeChooseMovieKeyboard(ctx, lst)
 		replaceMessage(ctx, usr, cht, mID, "Unrate? Which one?", &keyboard, stageChooseUnrate)
 
