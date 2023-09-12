@@ -189,25 +189,23 @@ func HandleUpdate(ctx *bot.Context, upd *tg.Update) {
 
 		state.stage = stageYear
 		keyboard = &keyboardSkip
-		prefix = fmt.Sprintf("Maybe you know the year of release of %q?", state.movie.Title)
+		prefix = fmt.Sprintf("Maybe you know the release year of %q?", state.movie.Title)
 
 	case stageYear:
 		year, err := strconv.Atoi(txt)
 		if err != nil || year < 1850 || year > time.Now().UTC().Year()+2 {
-			cb := tg.NewCallbackWithAlert(time.Now().UTC().String(), fmt.Sprintf("The value %s doesn't seem a valid year, isn't it?", txt))
-			if _, err = ctx.Bot.Request(cb); err != nil {
-				ctx.Logger.Errorw("failed sending alert message", "err", err)
-			}
+			prefix = fmt.Sprintf("Nah, the value %q doesn't seem like a valid release year, isn't it? Enter correct one or skip", txt)
+			keyboard = &keyboardSkip
 		} else {
 			state.movie.Year = int16(year)
+
+			db.AddMovie(ctx, usr, &state.movie)
+
+			state.stage = stageIdle
+			keyboard = &mainKeyboard
+			prefix = mainMessage
 		}
 
-		db.AddMovie(ctx, usr, &state.movie)
-
-		state.movie = db.Movie{}
-		state.stage = stageIdle
-		keyboard = &mainKeyboard
-		prefix = mainMessage
 	}
 
 	states[usr] = state

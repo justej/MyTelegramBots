@@ -5,7 +5,6 @@ import (
 	"botfarm/bots/AlainDelon/db"
 	"fmt"
 	"strconv"
-	"strings"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -41,64 +40,54 @@ const (
 )
 
 var (
+	backButtonRow = tg.NewInlineKeyboardRow(tg.NewInlineKeyboardButtonData("⬅️ Back", cbqBack))
+)
+
+// keyboards
+var (
 	mainKeyboard = tg.NewInlineKeyboardMarkup(
 		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Add", cbqAdd),
-			tg.NewInlineKeyboardButtonData("Delete", cbqDel),
+			tg.NewInlineKeyboardButtonData("🪄 Add", cbqAdd),
+			tg.NewInlineKeyboardButtonData("❌ Delete", cbqDel),
 		),
 		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Rate", cbqRate),
-			tg.NewInlineKeyboardButtonData("Unrate", cbqUnrate),
+			tg.NewInlineKeyboardButtonData("⭐ Rate", cbqRate),
+			tg.NewInlineKeyboardButtonData("💥 Unrate", cbqUnrate),
 		),
 		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("List watched", cbqWatched),
-			tg.NewInlineKeyboardButtonData("List unwatched", cbqUnwatched),
+			tg.NewInlineKeyboardButtonData("👁️ Watched", cbqWatched),
+			tg.NewInlineKeyboardButtonData("🙈 Unwatched", cbqUnwatched),
 		),
 		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("List all", cbqAll),
-			tg.NewInlineKeyboardButtonData("List my", cbqMy),
+			tg.NewInlineKeyboardButtonData("🎞️ All movies", cbqAll),
+			tg.NewInlineKeyboardButtonData("📝 My movies", cbqMy),
 		),
 		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("List top 10", cbqTop),
-			tg.NewInlineKeyboardButtonData("List latest 10", cbqLast),
+			tg.NewInlineKeyboardButtonData("💎 Top 10", cbqTop),
+			tg.NewInlineKeyboardButtonData("🕓 Latest 10", cbqLast),
 		),
 		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Amaze me", cbqAmazeMe),
-			tg.NewInlineKeyboardButtonData("Find", cbqFind),
+			tg.NewInlineKeyboardButtonData("👀 Amaze me", cbqAmazeMe),
+			tg.NewInlineKeyboardButtonData("🔍 Find", cbqFind),
 		),
 		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("I need help", cbqHelp),
+			tg.NewInlineKeyboardButtonData("🤦🏻‍♂️ I need help", cbqHelp),
 		),
 	)
 
 	keyboardSkip = tg.NewInlineKeyboardMarkup(
+		backButtonRow,
 		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Back", cbqBack),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Skip", cbqSkip),
-		),
-	)
-
-	keyboardAdd = tg.NewInlineKeyboardMarkup(
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Back", cbqBack),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Add movie", cbqExecute),
+			tg.NewInlineKeyboardButtonData("🙅🏻 Skip", cbqSkip),
 		),
 	)
 
 	keyboardBack = tg.NewInlineKeyboardMarkup(
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Back", cbqBack),
-		),
+		backButtonRow,
 	)
 
 	keyboardRateOptions = tg.NewInlineKeyboardMarkup(
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Back", cbqBack),
-		),
+		backButtonRow,
 		tg.NewInlineKeyboardRow(
 			tg.NewInlineKeyboardButtonData("⭐", cbq1Star),
 			tg.NewInlineKeyboardButtonData("⭐⭐", cbq2Star),
@@ -202,27 +191,27 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 
 	case cbqWatched:
 		lst, _ := db.ListSeenMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "List of watched movies\n\n"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "You already watched these movies"), &keyboardBack, stageList)
 
 	case cbqUnwatched:
 		lst, _ := db.ListUnseenMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "List of unwatched movies\n\n"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "You haven't seen these movies"), &keyboardBack, stageList)
 
 	case cbqAll:
 		lst, _ := db.ListAllMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "All movies on the list\n\n"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "All movies"), &keyboardBack, stageList)
 
 	case cbqMy:
 		lst, _ := db.ListMyMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "These are movies you added. The rates are also yours\n\n"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "The movies you added (the rates are also yours)"), &keyboardBack, stageList)
 
 	case cbqTop:
 		lst, _ := db.ListTopMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "Top 10 movies by rate\n\n"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "Top 10 rated movies"), &keyboardBack, stageList)
 
 	case cbqLast:
 		lst, _ := db.ListLatestMovies(ctx, usr)
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "10 latest movies added\n\n"), &keyboardBack, stageList)
+		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, false, "10 latest movies added"), &keyboardBack, stageList)
 
 	case cbqHelp:
 		replaceMessage(ctx, usr, cht, mID, helpMessage, &keyboardBack, stageHelp)
@@ -232,20 +221,6 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 			return
 		}
 		replaceMessage(ctx, usr, cht, mID, "What's the name of the movie?", &keyboardBack, stageTitle)
-
-	case cbqAltTitle:
-		if state.stage != stageAdd {
-			fixState(ctx, cbq)
-			return
-		}
-		replaceMessage(ctx, usr, cht, mID, "Oh, the movie has an alternative name? What's that?", &keyboardBack, stageAltTitle)
-
-	case cbqYear:
-		if state.stage != stageAdd {
-			fixState(ctx, cbq)
-			return
-		}
-		replaceMessage(ctx, usr, cht, mID, "Do you know the issue year?", &keyboardBack, stageYear)
 
 	case cbq1Star:
 		fallthrough
@@ -295,18 +270,13 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 
 func makeChooseMovieKeyboard(ctx *bot.Context, lst []*db.Movie) tg.InlineKeyboardMarkup {
 	rows := make([][]tg.InlineKeyboardButton, len(lst)+1)
-	rows[0] = tg.NewInlineKeyboardRow(keyboardBack.InlineKeyboard[0][0])
+	rows[0] = backButtonRow
 	for i, mv := range lst {
 		text := formatMovie(mv, false)
 		rows[i+1] = tg.NewInlineKeyboardRow(tg.NewInlineKeyboardButtonData(text, strconv.Itoa(mv.ID)))
 	}
 	keyboard := tg.NewInlineKeyboardMarkup(rows...)
 	return keyboard
-}
-
-func alertIncompleteData(ctx *bot.Context, s string) {
-	// TODO: show alert
-	ctx.Logger.Warn("movie doesn't have a title")
 }
 
 func replaceMessage(ctx *bot.Context, usr, cht int64, msgID int, msg string, kbMarkup *tg.InlineKeyboardMarkup, stg stage) bool {
@@ -328,32 +298,6 @@ func replaceMessage(ctx *bot.Context, usr, cht int64, msgID int, msg string, kbM
 	states[usr] = state
 
 	return true
-}
-
-func formatMovieWithHeaders(mv *db.Movie, showRate bool) string {
-	fmtStr := []string{}
-	args := []any{}
-
-	if len(mv.Title) > 0 {
-		fmtStr = append(fmtStr, "Title: %s\n")
-		args = append(args, mv.Title)
-	}
-	if len(mv.AltTitle) > 0 {
-		fmtStr = append(fmtStr, "Alternative title:%s\n")
-		args = append(args, mv.AltTitle)
-	}
-
-	if mv.Year > 0 {
-		fmtStr = append(fmtStr, "Year: %d\n")
-		args = append(args, mv.Year)
-	}
-
-	if showRate && mv.Rating > 0 {
-		fmtStr = append(fmtStr, "Rate: %.0f ⭐")
-		args = append(args, mv.Rating)
-	}
-
-	return fmt.Sprintf(strings.Join(fmtStr, ""), args...)
 }
 
 func fixState(ctx *bot.Context, cbq *tg.CallbackQuery) {
