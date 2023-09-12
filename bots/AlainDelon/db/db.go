@@ -262,7 +262,7 @@ FROM movies m
 		FROM ratings
 		GROUP BY movie_id
 	) r2 ON m.id=r2.movie_id
-ORDER BY m.updated_on, avg_rating DESC NULLS LAST`
+ORDER BY m.title`
 	rows, err := ctx.DB.Query(query, usr)
 	if err != nil {
 		ctx.Logger.Errorw("failed querying seen movies", "err", err)
@@ -287,7 +287,7 @@ FROM movies m
 		WHERE user_id=$1
 	) r2 ON m.id=r2.movie_id
 WHERE r2.movie_id IS NULL
-ORDER BY created_on, avg_rating DESC NULLS LAST`
+ORDER BY m.title`
 	rows, err := ctx.DB.Query(query, usr)
 	if err != nil {
 		ctx.Logger.Errorw("failed querying seen movies", "err", err)
@@ -306,7 +306,7 @@ FROM movies m
 		FROM ratings
 		GROUP BY movie_id
 	) r ON m.id=r.movie_id
-ORDER BY created_on, avg_rating DESC NULLS LAST`
+ORDER BY m.title`
 	rows, err := ctx.DB.Query(query)
 	if err != nil {
 		ctx.Logger.Errorw("failed querying all movies", "err", err)
@@ -319,10 +319,10 @@ ORDER BY created_on, avg_rating DESC NULLS LAST`
 
 func ListMyMovies(ctx *bot.Context, usr int64) ([]*Movie, error) {
 	query := `SELECT m.id, m.title, m.alt_title, m.year, r.rating
-	FROM movies m 
-		LEFT JOIN ratings r ON m.id=r.movie_id AND r.user_id=$1
-	WHERE m.created_by=$1
-	ORDER BY m.created_on, title DESC`
+FROM movies m
+	LEFT JOIN ratings r ON m.id=r.movie_id AND r.user_id=$1
+WHERE m.created_by=$1
+ORDER BY m.title`
 	rows, err := ctx.DB.Query(query, usr)
 	if err != nil {
 		ctx.Logger.Errorw("failed querying all movies", "err", err)
@@ -341,7 +341,7 @@ FROM movies m
 		FROM ratings
 		GROUP BY movie_id
 	) r ON m.id=r.movie_id
-ORDER BY avg_rating DESC NULLS LAST
+ORDER BY avg_rating DESC NULLS LAST, m.title
 LIMIT 10`
 	rows, err := ctx.DB.Query(query)
 	if err != nil {
@@ -361,7 +361,7 @@ FROM movies m
 		FROM ratings
 		GROUP BY movie_id
 	) r ON m.id=r.movie_id
-ORDER BY created_on DESC NULLS LAST
+ORDER BY created_on DESC, m.title
 LIMIT 10`
 	rows, err := ctx.DB.Query(query)
 	if err != nil {
