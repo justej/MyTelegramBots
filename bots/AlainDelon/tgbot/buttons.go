@@ -27,25 +27,17 @@ const (
 
 	cbqBack    = "cbqBack"
 	cbqExecute = "cbqExecute"
+	cbqSkip    = "cbqSkip"
 
-	cbqTitle       = "cbqTitle"
-	cbqAltTitle    = "cbqAltTitle"
-	cbqYear        = "cbqYear"
-	cbqChooseMovie = "cbqChooseMovie"
-	cbqSetRating   = "cbqSetRating"
+	cbqTitle    = "cbqTitle"
+	cbqAltTitle = "cbqAltTitle"
+	cbqYear     = "cbqYear"
 
-	cbq1Star = "1"
-	cbq2Star = "2"
-	cbq3Star = "3"
-	cbq4Star = "4"
-	cbq5Star = "5"
-)
-
-const (
-	prefixMovieToAdd    = "Fill out the fields (title is required, the rest is optional)\n\n"
-	prefixMovieToDelete = "Movie to delete:\n\n"
-	prefixMovieToRate   = "Movie to rate:\n\n"
-	prefixMovieToUnrate = "Movie to unrate:\n\n"
+	cbq1Star = "1star"
+	cbq2Star = "2stars"
+	cbq3Star = "3stars"
+	cbq4Star = "4stars"
+	cbq5Star = "5stars"
 )
 
 var (
@@ -79,56 +71,21 @@ var (
 		),
 	)
 
+	keyboardSkip = tg.NewInlineKeyboardMarkup(
+		tg.NewInlineKeyboardRow(
+			tg.NewInlineKeyboardButtonData("Back", cbqBack),
+		),
+		tg.NewInlineKeyboardRow(
+			tg.NewInlineKeyboardButtonData("Skip", cbqSkip),
+		),
+	)
+
 	keyboardAdd = tg.NewInlineKeyboardMarkup(
 		tg.NewInlineKeyboardRow(
 			tg.NewInlineKeyboardButtonData("Back", cbqBack),
 		),
 		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Set title", cbqTitle),
-			tg.NewInlineKeyboardButtonData("Set year", cbqYear),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Set alternative title", cbqAltTitle),
-		),
-		tg.NewInlineKeyboardRow(
 			tg.NewInlineKeyboardButtonData("Add movie", cbqExecute),
-		),
-	)
-
-	keyboardDel = tg.NewInlineKeyboardMarkup(
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Back", cbqBack),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Choose movie", cbqChooseMovie),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Delete movie", cbqExecute),
-		),
-	)
-
-	keyboardRate = tg.NewInlineKeyboardMarkup(
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Back", cbqBack),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Choose movie", cbqChooseMovie),
-			tg.NewInlineKeyboardButtonData("Set rate", cbqSetRating),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Rate", cbqExecute),
-		),
-	)
-
-	keyboardUnrate = tg.NewInlineKeyboardMarkup(
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Back", cbqBack),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Choose movie", cbqChooseMovie),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Unrate", cbqExecute),
 		),
 	)
 
@@ -140,6 +97,9 @@ var (
 
 	keyboardRateOptions = tg.NewInlineKeyboardMarkup(
 		tg.NewInlineKeyboardRow(
+			tg.NewInlineKeyboardButtonData("Back", cbqBack),
+		),
+		tg.NewInlineKeyboardRow(
 			tg.NewInlineKeyboardButtonData("⭐", cbq1Star),
 			tg.NewInlineKeyboardButtonData("⭐⭐", cbq2Star),
 			tg.NewInlineKeyboardButtonData("⭐⭐⭐", cbq3Star),
@@ -147,9 +107,6 @@ var (
 		tg.NewInlineKeyboardRow(
 			tg.NewInlineKeyboardButtonData("⭐⭐⭐⭐", cbq4Star),
 			tg.NewInlineKeyboardButtonData("⭐⭐⭐⭐⭐", cbq5Star),
-		),
-		tg.NewInlineKeyboardRow(
-			tg.NewInlineKeyboardButtonData("Back", cbqBack),
 		),
 	)
 )
@@ -168,64 +125,6 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 
 	switch cbq.Data {
 	case cbqBack:
-		var keyboard *tg.InlineKeyboardMarkup
-		var stage stage
-		var message string
-		switch state.stage {
-		case stageTitle:
-			fallthrough
-		case stageAltTitle:
-			fallthrough
-		case stageYear:
-			keyboard = &keyboardAdd
-			stage = stageAdd
-			message = prefixMovieToAdd + formatMovieWithHeaders(&state.movie)
-
-		case stageChooseDel:
-			keyboard = &keyboardDel
-			stage = stageDel
-			message = prefixMovieToDelete + formatMovieWithHeaders(&state.movie)
-
-		case stageChooseRate:
-			keyboard = &keyboardRate
-			stage = stageRate
-			message = prefixMovieToRate + formatMovieWithHeaders(&state.movie)
-
-		case stageChooseUnrate:
-			keyboard = &keyboardUnrate
-			stage = stageUnrate
-			message = prefixMovieToUnrate + formatMovieWithHeaders(&state.movie)
-
-		default:
-			keyboard = &mainKeyboard
-			stage = stageIdle
-			message = mainMessage
-		}
-
-		replaceMessage(ctx, usr, cht, mID, message, keyboard, stage)
-
-	case cbqExecute:
-		switch state.stage {
-		case stageAdd:
-			if len(state.movie.Title) > 0 {
-				db.AddMovie(ctx, usr, &state.movie)
-			} else {
-				alertIncompleteData(ctx, "Movie needs a non-empty title")
-			}
-		case stageDel:
-			if len(state.movie.Title) != 0 {
-				db.DelMovie(ctx, usr, state.movie.ID)
-			}
-		case stageRate:
-			db.RateMovie(ctx, usr, state.movie.ID, int(state.movie.Rating))
-		case stageUnrate:
-			db.UnrateMovie(ctx, usr, state.movie.ID)
-		default:
-			fixState(ctx, cbq)
-			return
-		}
-
-		states[usr].movie = db.Movie{}
 		replaceMessage(ctx, usr, cht, mID, mainMessage, &mainKeyboard, stageIdle)
 
 	case cbqAdd:
@@ -233,28 +132,59 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(ctx, usr, cht, mID, prefixMovieToAdd+formatMovieWithHeaders(&state.movie), &keyboardAdd, stageAdd)
+		states[usr].movie = db.Movie{}
+		replaceMessage(ctx, usr, cht, mID, "Enter the title of the movie", &keyboardBack, stageTitle)
+
+	case cbqSkip:
+		if state.stage != stageAltTitle && state.stage != stageYear {
+			fixState(ctx, cbq)
+			return
+		}
+
+		var keyboard *tg.InlineKeyboardMarkup
+		var prefix string
+		var stage stage
+		switch state.stage {
+		case stageAltTitle:
+			stage = stageYear
+			keyboard = &keyboardSkip
+			prefix = "Maybe you know the year of release?\n\n"
+
+		case stageYear:
+			db.AddMovie(ctx, usr, &state.movie)
+			stage = stageIdle
+			keyboard = &mainKeyboard
+			prefix = mainMessage
+		}
+
+		replaceMessage(ctx, usr, cht, state.mainMessageID, prefix, keyboard, stage)
 
 	case cbqDel:
 		if state.stage != stageIdle {
 			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(ctx, usr, cht, mID, prefixMovieToDelete+formatMovieWithHeaders(&state.movie), &keyboardDel, stageDel)
+		lst, _ := db.ListAllMovies(ctx, usr)
+		keyboard := makeChooseMovieKeyboard(ctx, lst)
+		replaceMessage(ctx, usr, cht, mID, "Pick the movie to delete", &keyboard, stageChooseDel)
 
 	case cbqRate:
 		if state.stage != stageIdle {
 			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(ctx, usr, cht, mID, prefixMovieToRate+formatMovieWithHeaders(&state.movie), &keyboardRate, stageRate)
+		lst, _ := db.ListAllMovies(ctx, usr)
+		keyboard := makeChooseMovieKeyboard(ctx, lst)
+		replaceMessage(ctx, usr, cht, mID, "Which one do you want to rate?", &keyboard, stageChooseRate)
 
 	case cbqUnrate:
 		if state.stage != stageIdle {
 			fixState(ctx, cbq)
 			return
 		}
-		replaceMessage(ctx, usr, cht, mID, prefixMovieToUnrate+formatMovieWithHeaders(&state.movie), &keyboardUnrate, stageUnrate)
+		lst, _ := db.ListAllMovies(ctx, usr)
+		keyboard := makeChooseMovieKeyboard(ctx, lst)
+		replaceMessage(ctx, usr, cht, mID, "Unrate? Which one?", &keyboard, stageChooseUnrate)
 
 	case cbqAmazeMe:
 		if state.stage != stageIdle {
@@ -317,32 +247,6 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 		}
 		replaceMessage(ctx, usr, cht, mID, "Do you know the issue year?", &keyboardBack, stageYear)
 
-	case cbqChooseMovie:
-		if state.stage != stageDel && state.stage != stageRate && state.stage != stageUnrate {
-			fixState(ctx, cbq)
-			return
-		}
-
-		lst, _ := db.ListAllMovies(ctx, usr)
-
-		var stage stage
-		switch state.stage {
-		case stageDel:
-			stage = stageChooseDel
-		case stageRate:
-			stage = stageChooseRate
-		case stageUnrate:
-			stage = stageChooseUnrate
-		}
-		replaceMessage(ctx, usr, cht, mID, joinMovies(lst, true, "Enter movie ID:\n\n"), &keyboardBack, stage)
-
-	case cbqSetRating:
-		if state.stage != stageRate {
-			fixState(ctx, cbq)
-			return
-		}
-		replaceMessage(ctx, usr, cht, mID, "Set your rating", &keyboardRateOptions, stageRate)
-
 	case cbq1Star:
 		fallthrough
 	case cbq2Star:
@@ -352,15 +256,52 @@ func HandleCallbackQuery(ctx *bot.Context, upd *tg.Update) {
 	case cbq4Star:
 		fallthrough
 	case cbq5Star:
-		r, err := strconv.Atoi(cbq.Data)
+		r, err := strconv.Atoi(cbq.Data[0:1])
 		if err != nil {
 			ctx.Logger.Errorw("impossible came true", "err", err)
+		} else {
+			state.movie.Rating = float32(r)
+			db.RateMovie(ctx, usr, state.movie.ID, int(state.movie.Rating))
 		}
 
-		state.movie.Rating = float32(r)
-		replaceMessage(ctx, usr, cht, mID, prefixMovieToRate+formatMovieWithHeaders(&state.movie), &keyboardRate, stageRate)
+		replaceMessage(ctx, usr, cht, mID, mainMessage, &mainKeyboard, stageIdle)
 
+	default:
+		// you only can get here when you chose movie
+		txt := cbq.Data
+		keyboard := &mainKeyboard
+		prefix := mainMessage
+		state.movie = *movieByID(ctx, usr, txt)
+
+		switch state.stage {
+		case stageChooseRate:
+			keyboard = &keyboardRateOptions
+			state.stage = stageRate
+			prefix = fmt.Sprintf("How many starts for %q?", state.movie.Title)
+
+		case stageChooseUnrate:
+			db.UnrateMovie(ctx, usr, state.movie.ID)
+			state.stage = stageIdle
+
+		case stageChooseDel:
+			db.DelMovie(ctx, usr, state.movie.ID)
+			state.stage = stageIdle
+		}
+
+		states[usr] = state
+		replaceMessage(ctx, usr, cht, state.mainMessageID, prefix, keyboard, state.stage)
 	}
+}
+
+func makeChooseMovieKeyboard(ctx *bot.Context, lst []*db.Movie) tg.InlineKeyboardMarkup {
+	rows := make([][]tg.InlineKeyboardButton, len(lst)+1)
+	rows[0] = tg.NewInlineKeyboardRow(keyboardBack.InlineKeyboard[0][0])
+	for i, mv := range lst {
+		text := formatMovie(mv, false)
+		rows[i+1] = tg.NewInlineKeyboardRow(tg.NewInlineKeyboardButtonData(text, strconv.Itoa(mv.ID)))
+	}
+	keyboard := tg.NewInlineKeyboardMarkup(rows...)
+	return keyboard
 }
 
 func alertIncompleteData(ctx *bot.Context, s string) {
@@ -381,23 +322,15 @@ func replaceMessage(ctx *bot.Context, usr, cht int64, msgID int, msg string, kbM
 		return false
 	}
 
-	states[usr].stage = stg
-	states[usr].mainMessageID = msgID
-	// for mID := range states[usr].tmpMsgIDs {
-	// 	if mID == states[usr].mainMessageID {
-	// 		continue
-	// 	}
-
-	// 	d := tg.NewDeleteMessage(cht, mID)
-	// 	if _, err := bot.Send(d); err != nil {
-	// 		log.Error(usr, err, "failed deleting outdated messages")
-	// 	}
-	// }
+	state := states[usr]
+	state.stage = stg
+	state.mainMessageID = msgID
+	states[usr] = state
 
 	return true
 }
 
-func formatMovieWithHeaders(mv *db.Movie) string {
+func formatMovieWithHeaders(mv *db.Movie, showRate bool) string {
 	fmtStr := []string{}
 	args := []any{}
 
@@ -411,8 +344,13 @@ func formatMovieWithHeaders(mv *db.Movie) string {
 	}
 
 	if mv.Year > 0 {
-		fmtStr = append(fmtStr, "Year: %d")
+		fmtStr = append(fmtStr, "Year: %d\n")
 		args = append(args, mv.Year)
+	}
+
+	if showRate && mv.Rating > 0 {
+		fmtStr = append(fmtStr, "Rate: %.0f ⭐")
+		args = append(args, mv.Rating)
 	}
 
 	return fmt.Sprintf(strings.Join(fmtStr, ""), args...)
@@ -421,12 +359,6 @@ func formatMovieWithHeaders(mv *db.Movie) string {
 func fixState(ctx *bot.Context, cbq *tg.CallbackQuery) {
 	usr := cbq.From.ID
 	cht := cbq.Message.From.ID
-
-	cb := tg.NewCallback(cbq.ID, "Message is outdated, can't continue")
-	if _, err := ctx.Bot.Request(cb); err != nil {
-		ctx.Logger.Errorw("failed sending callback", "err", err)
-		// no return
-	}
 
 	replaceMessage(ctx, usr, cht, cbq.Message.MessageID, mainMessage, &mainKeyboard, stageIdle)
 }

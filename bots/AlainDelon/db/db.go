@@ -81,8 +81,25 @@ func AddMovie(ctx *bot.Context, usr int64, mv *Movie) error {
 }
 
 func DelMovie(ctx *bot.Context, usr int64, movieID int) error {
-	if _, err := ctx.DB.Exec(`DELETE FROM movies WHERE id=$1`, movieID); err != nil {
+	tx, err := ctx.DB.BeginTx(context.Background(), txIsoRepeatableRead)
+	if err != nil {
+		ctx.Logger.Errorw("failed starting delete movie transaction", "err", err)
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM ratings WHERE movie_id=$1`, movieID); err != nil {
 		ctx.Logger.Errorw("failed deleting movie", "err", err)
+		return err
+	}
+
+	if _, err := tx.Exec(`DELETE FROM movies WHERE id=$1`, movieID); err != nil {
+		ctx.Logger.Errorw("failed deleting movie", "err", err)
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		ctx.Logger.Errorw("failed committing delete movie", "err", err)
 		return err
 	}
 

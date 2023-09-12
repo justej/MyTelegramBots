@@ -177,22 +177,21 @@ func HandleUpdate(ctx *bot.Context, upd *tg.Update) {
 
 	switch state.stage {
 	case stageTitle:
-		keyboard = &keyboardAdd
-		state.stage = stageAdd
 		state.movie.Title = txt
-		prefix = prefixMovieToAdd
+		state.stage = stageAltTitle
+		keyboard = &keyboardSkip
+		prefix = fmt.Sprintf("You may enter an alternative title for %q or just skip it", state.movie.Title)
 
 	case stageAltTitle:
-		keyboard = &keyboardAdd
-		state.stage = stageAdd
-		state.movie.AltTitle = txt
-		prefix = prefixMovieToAdd
+		if len(txt) > 0 && state.movie.Title != txt {
+			state.movie.AltTitle = txt
+		}
+
+		state.stage = stageYear
+		keyboard = &keyboardSkip
+		prefix = fmt.Sprintf("Maybe you know the year of release of %q?", state.movie.Title)
 
 	case stageYear:
-		keyboard = &keyboardAdd
-		state.stage = stageAdd
-		prefix = prefixMovieToAdd
-
 		year, err := strconv.Atoi(txt)
 		if err != nil || year < 1850 || year > time.Now().UTC().Year()+2 {
 			cb := tg.NewCallbackWithAlert(time.Now().UTC().String(), fmt.Sprintf("The value %s doesn't seem a valid year, isn't it?", txt))
@@ -203,27 +202,16 @@ func HandleUpdate(ctx *bot.Context, upd *tg.Update) {
 			state.movie.Year = int16(year)
 		}
 
-	case stageChooseDel:
-		keyboard = &keyboardDel
-		state.movie = *movieByID(ctx, usr, txt)
-		state.stage = stageDel
-		prefix = prefixMovieToDelete
+		db.AddMovie(ctx, usr, &state.movie)
 
-	case stageChooseRate:
-		keyboard = &keyboardRate
-		state.movie = *movieByID(ctx, usr, txt)
-		state.stage = stageRate
-		prefix = prefixMovieToRate
-
-	case stageChooseUnrate:
-		keyboard = &keyboardUnrate
-		state.movie = *movieByID(ctx, usr, txt)
-		state.stage = stageUnrate
-		prefix = prefixMovieToUnrate
+		state.movie = db.Movie{}
+		state.stage = stageIdle
+		keyboard = &mainKeyboard
+		prefix = mainMessage
 	}
 
 	states[usr] = state
-	replaceMessage(ctx, usr, cht, state.mainMessageID, prefix+formatMovieWithHeaders(&state.movie), keyboard, state.stage)
+	replaceMessage(ctx, usr, cht, state.mainMessageID, prefix, keyboard, state.stage)
 
 	dm := tg.NewDeleteMessage(cht, msg.MessageID)
 	// ignore bot.Send errors because it always fails to deserialize response
