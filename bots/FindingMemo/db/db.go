@@ -51,7 +51,7 @@ func ListAllMemos(ctx *bot.Context, cht int64, short bool) (string, string) {
 func ListFullMemos(ctx *bot.Context, cht int64, short bool) string {
 	rows, err := getMemosRows(ctx, cht)
 	if err != nil {
-		ctx.Logger.Errorw("failed querying memos","err",  err)
+		ctx.Logger.Errorw("failed querying memos", "err", err)
 		return ""
 	}
 	defer rows.Close()
@@ -81,6 +81,18 @@ func ListFirstMemos(ctx *bot.Context, cht int64, n int, short bool) string {
 	return list
 }
 
+func ListActiveMemos(ctx *bot.Context, cht int64, short bool) []Memo {
+	rows, err := getMemosRows(ctx, cht)
+	if err != nil {
+		ctx.Logger.Errorw("failed querying memos", "err", err)
+		return []Memo{}
+	}
+	defer rows.Close()
+
+	activeMemos, _ := extractMemos(ctx, rows)
+	return activeMemos
+}
+
 // Done marks the task as done
 func Done(ctx *bot.Context, cht int64, n int) {
 	markAs(ctx, memoStateDone, cht, n)
@@ -103,7 +115,7 @@ func GetLenMemos(ctx *bot.Context, cht int64) int {
 	return len(activeMemos)
 }
 
-func listMemos(memos []memo, short bool) string {
+func listMemos(memos []Memo, short bool) string {
 	var n int
 	var maxLineLen int
 	var sb strings.Builder
@@ -116,8 +128,8 @@ func listMemos(memos []memo, short bool) string {
 		maxLineLen = shortLineLen
 	} else {
 		for _, memo := range memos {
-			if maxLineLen < len(memo.text) {
-				maxLineLen = len(memo.text)
+			if maxLineLen < len(memo.Text) {
+				maxLineLen = len(memo.Text)
 			}
 		}
 	}
@@ -125,16 +137,16 @@ func listMemos(memos []memo, short bool) string {
 	// grow string builder to accommodate all lines
 	for _, memo := range memos {
 		// up to 3 symbols per line
-		n += 3 + min(len(memo.text), maxLineLen)
+		n += 3 + min(len(memo.Text), maxLineLen)
 	}
 	sb.Grow(n)
 
 	// compose the string
 	for i, memo := range (memos)[:len(memos)-1] {
-		writeMemo(&sb, strconv.Itoa(i+1), maxLineLen, memo.text)
+		writeMemo(&sb, strconv.Itoa(i+1), maxLineLen, memo.Text)
 		sb.WriteString("\n")
 	}
-	writeMemo(&sb, strconv.Itoa(len(memos)), maxLineLen, memos[len(memos)-1].text)
+	writeMemo(&sb, strconv.Itoa(len(memos)), maxLineLen, memos[len(memos)-1].Text)
 
 	return sb.String()
 }

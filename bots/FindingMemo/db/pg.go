@@ -64,7 +64,7 @@ VALUES($1, $2, $3, $4, $5)`, usr, cht, true, DefaultTime, DefaultTimeZone); err 
 
 // getMemosRows returns active and done within the last 24 hours memos
 func getMemosRows(ctx *bot.Context, cht int64) (*sql.Rows, error) {
-	query := `SELECT text, state, timestamp, priority
+	query := `SELECT memo_id, text, state, timestamp, priority
 FROM memos
 WHERE chat_id=$1 AND (state=$2 OR (state=$3 AND timestamp>$4))
 ORDER BY priority ASC`
@@ -73,26 +73,26 @@ ORDER BY priority ASC`
 }
 
 // extractMemos splits raw rows of memos into active and done memos
-func extractMemos(ctx *bot.Context, rows *sql.Rows) ([]memo, []memo) {
-	var activeMemos []memo
-	var doneMemos []memo
+func extractMemos(ctx *bot.Context, rows *sql.Rows) ([]Memo, []Memo) {
+	var activeMemos []Memo
+	var doneMemos []Memo
 	for rows.Next() {
-		var memo memo
+		var memo Memo
 		var ts sql.NullTime
 
-		err := rows.Scan(&memo.text, &memo.state, &ts, &memo.priority)
+		err := rows.Scan(&memo.ID, &memo.Text, &memo.State, &ts, &memo.Priority)
 		if err != nil {
 			ctx.Logger.Errorw("failed scanning text, state, ts, priority", "err", err)
 			continue
 		}
 
 		if ts.Valid {
-			memo.ts = ts.Time
+			memo.TS = ts.Time
 		} else {
-			memo.ts = never
+			memo.TS = never
 		}
 
-		switch memo.state {
+		switch memo.State {
 		case memoStateActive:
 			activeMemos = append(activeMemos, memo)
 		case memoStateDone:
@@ -174,7 +174,7 @@ WHERE chat_id=$1 AND state=$2 AND priority>$3`, cht, memoStateActive, n); err !=
 }
 
 // GetUsers returns a list of all user IDs
-func GetUsers(ctx *bot.Context) ([]int64) {
+func GetUsers(ctx *bot.Context) []int64 {
 	rows, err := ctx.DB.Query(`SELECT user_id FROM users`)
 	if err != nil {
 		ctx.Logger.Errorw("failed fetching list of users:", "err", err)

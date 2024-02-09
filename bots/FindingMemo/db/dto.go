@@ -8,11 +8,12 @@ const (
 	memoStateDeleted
 )
 
-type memo struct {
-	text     string    // memo text
-	state    uint      // memo state: active, deleted, done
-	priority int16     // memo order to display
-	ts       time.Time // last op time
+type Memo struct {
+	ID       int
+	Text     string    // memo text
+	State    uint      // memo state: active, deleted, done
+	Priority int16     // memo order to display
+	TS       time.Time // last op time
 }
 
 type RemindParams struct {
