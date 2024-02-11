@@ -1,84 +1,76 @@
 package reminder
 
 import (
-	"botfarm/bot"
 	"botfarm/bots/FindingMemo/db"
 	"container/heap"
 	"time"
 
 	"github.com/jmhodges/clock"
+	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 const reminderTick = 20 * time.Second
 
 var (
-	clk          = clock.New()
-	rq           = NewReminderQueue()
-	sendReminder func(*bot.Context, int64)
+	clk = clock.New()
 )
 
-type Reminder struct {
-	at  time.Time
-	cht int64
-	usr int64
+type Manager struct {
+	db            *db.Database
+	logger        *zap.SugaredLogger
+	reminderQueue *reminderQueue
 }
 
-func Init(ctx *bot.Context, s func(*bot.Context, int64)) {
-	sendReminder = s
+type Reminder struct {
+	logger       *zap.SugaredLogger
+	at           time.Time
+	usr          int64
+	sendReminder func(int64)
+}
+
+func NewManager(d *db.Database, sr func(int64), l *zap.SugaredLogger) *Manager {
+	return &Manager{
+		db:            d,
+		logger:        l,
+		reminderQueue: NewReminderQueue(),
+	}
+}
+
+func (r *Manager) Run() {
 	ch := time.NewTicker(reminderTick).C
 
-	users := db.GetUsers(ctx)
+	users, err := r.db.GetUsers()
+	if err != nil {
+		r.logger.Fatalw("failed getting list of users", "err", err)
+	}
 
-	ctx.Logger.Infof("initializing reminders for %d users", len(users))
+	r.logger.Infof("initializing reminders for %d users", len(users))
 
 	for _, usr := range users {
-		ok := Set(ctx, usr)
-		if !ok {
-			ctx.Logger.Error("failed to fetch remind parameters; the user won't get reminders")
+		err = r.Set(usr)
+		if err != nil {
+			r.logger.Errorw("failed to fetch remind parameters; the user won't get reminders", "err", err)
 		}
 	}
 
-	go remind(ctx, ch)
+	go remind(ch, r.reminderQueue)
 }
 
-func remind(ctx *bot.Context, ch <-chan time.Time) {
-	for range ch {
-		now := clk.Now().UTC()
-		for {
-			r, ok := rq.Peek().(*Reminder)
-			if !ok || now.Before(r.at) {
-				break
-			}
-
-			heap.Pop(rq)
-
-			// reminder doesn't have user in its context, so adding it now
-			ctx := ctx.CloneWith(r.usr)
-
-			ctx.Logger.Info("reminder is being sent")
-
-			go sendReminder(ctx, r.cht)
-			r.at = r.at.Add(24 * time.Hour)
-			heap.Push(rq, r)
-		}
-	}
-}
-
-func Set(ctx *bot.Context, usr int64) bool {
-	rp, ok := db.GetRemindParams(ctx, usr)
-	if !ok {
-		return false
+func (r *Manager) Set(usr int64) error {
+	rp, err := r.db.GetRemindParams(usr)
+	if err != nil {
+		return errors.Wrap(err, "failed getting reminder parameters")
 	}
 
 	if rp == nil {
-		ctx.Logger.Warn("no reminder parameters found")
-		return false
+		return errors.New("no reminder parameters found")
 	}
 
 	// TODO: add location cache
 	loc, err := time.LoadLocation(rp.TimeZone)
 	if err != nil {
-		ctx.Logger.Errorw("failed loading location; using UTC time zone", "err", err)
+		r.logger.Errorw("failed loading location; using UTC time zone", "err", err)
 		loc = time.UTC
 	}
 
@@ -91,13 +83,33 @@ func Set(ctx *bot.Context, usr int64) bool {
 		now = now.Add(24 * time.Hour)
 	}
 
-	r := &Reminder{
+	reminder := &Reminder{
 		usr: usr,
-		cht: rp.ChatID,
 		at:  time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, loc).UTC(),
 	}
 
-	heap.Push(rq, r)
+	heap.Push(r.reminderQueue, reminder)
 
-	return true
+	return nil
+}
+
+func remind(ch <-chan time.Time, reminderQueue *reminderQueue) {
+	for range ch {
+		now := clk.Now().UTC()
+		for {
+			r, ok := reminderQueue.Peek().(*Reminder)
+			if !ok || now.Before(r.at) {
+				break
+			}
+
+			heap.Pop(reminderQueue)
+
+			// reminder doesn't have user in its context, so adding it now
+			r.logger.Info("reminder is being sent")
+
+			go r.sendReminder(r.usr)
+			r.at = r.at.Add(24 * time.Hour)
+			heap.Push(reminderQueue, r)
+		}
+	}
 }

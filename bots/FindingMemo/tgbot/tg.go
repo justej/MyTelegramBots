@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 type State int
@@ -30,126 +33,203 @@ const (
 
 var states = make(map[int64]State) // user to state
 
-func HandleMessage(ctx *bot.Context, message *tg.Message) {
+type TBot struct {
+	Bot             *tg.BotAPI
+	DB              *db.Database
+	Logger          *zap.SugaredLogger
+	ReminderManager *reminder.Manager
+	RetryDelay      time.Duration
+	RetryAttempts   int
+}
+
+func NewTBot(tgtoken string, d *db.Database, l *zap.SugaredLogger) (*TBot, error) {
+	b, err := tg.NewBotAPI(tgtoken)
+	if err != nil {
+		l.Errorw("failed to initialize Telegram Bot", "err", err)
+		return &TBot{}, err
+	}
+
+	b.Debug = false
+
+	l.Infof("authorized on account %q (%q, %d)", b.Self.FirstName, b.Self.UserName, b.Self.ID)
+
+	return &TBot{
+		Bot:           b,
+		DB:            d,
+		Logger:        l,
+		RetryAttempts: 3,
+		RetryDelay:    1 * time.Second,
+	}, nil
+
+}
+
+func (b *TBot) HandleMessage(message *tg.Message) {
 	usr := message.From.ID
-	cht := message.Chat.ID
 
 	switch states[usr] {
 	case idle:
 		loc := message.Location
 		if loc != nil {
-			tz := updateTimeZone(ctx, usr, loc)
+			tz, err := b.updateTimeZone(usr, loc)
+			if err != nil {
+				b.Logger.Errorw("couldn't update time zone", "err", err)
+			}
 
-			msg := tg.NewMessage(cht, fmt.Sprintf("Time zone identified as %s, it will be used in time offset and transition to daylight saving time if any.", tz))
-			msg.ReplyToMessageID = message.MessageID
-			if _, err := ctx.Bot.Send(msg); err != nil {
-				ctx.Logger.Errorw("failed updating location", "err", err)
+			txt := fmt.Sprintf("Time zone identified as %s, it will be used in time offset and transition to daylight saving time if any.", tz)
+			b.SendMessage(usr, txt, message.MessageID)
+			return
+		}
+
+		if err := b.DB.AddMemo(usr, message.Text); err != nil {
+			b.Logger.Errorw("failed adding memo", "err", err)
+			return
+		}
+
+		msg := tg.NewMessage(usr, "Looks like you wanted to add a memo. Added it.")
+		msg.ReplyToMessageID = message.MessageID
+		if _, err := b.Bot.Send(msg); err != nil {
+			b.Logger.Errorw("failed on quick add:", "err", err)
+		}
+
+	case add:
+		b.addMemo(usr, message.Text)
+
+	case ins:
+		b.insertMemo(usr, message.Text)
+
+	case del:
+		// TODO: set idle state after 3 attempts
+		b.delMemo(usr, message.MessageID, message.Text)
+
+	case done:
+		b.markAsDone(usr, message.MessageID, message.Text)
+
+	case remindat:
+		reminderAt := strings.TrimSpace(message.Text)
+		err := b.updateReminder(usr, reminderAt)
+		if err != nil {
+			b.Logger.Errorw("failed updating reminder", "err", err)
+			err := b.SendMessage(usr, "I didn't get it. I expected a valid time in the format HH:MM.", message.MessageID)
+			if err != nil {
+				b.Logger.Errorw("failed sending error message", "err", err)
 			}
 			return
 		}
 
-		if !db.AddMemo(ctx, cht, message.Text) {
-			return
-		}
-
-		msg := tg.NewMessage(cht, "Looks like you wanted to add a memo. Added it.")
-		msg.ReplyToMessageID = message.MessageID
-		if _, err := ctx.Bot.Send(msg); err != nil {
-			ctx.Logger.Errorw("failed on quick add:", "err", err)
-		}
-
-	case add:
-		addMemo(ctx, usr, cht, message.Text)
-
-	case ins:
-		insertMemo(ctx, usr, cht, message.Text)
-
-	case del:
-		// TODO: set idle state after 3 attempts
-		delMemo(ctx, usr, cht, message.MessageID, message.Text)
-
-	case done:
-		markAsDone(ctx, usr, cht, message.MessageID, message.Text)
-
-	case remindat:
-		reminderAt := strings.TrimSpace(message.Text)
-		ok := updateReminder(ctx, usr, reminderAt)
-		if !ok {
-			sendErrorMessage(ctx, cht, message.MessageID, "I didn't get it. I expected a valid time in the format HH:MM.")
-			return
-		}
-
-		rp, ok := db.GetRemindParams(ctx, usr)
-		if !ok {
-			ctx.Logger.Warn("failed on setting reminder:")
+		rp, err := b.DB.GetRemindParams(usr)
+		if err != nil {
+			b.Logger.Warn("failed on setting reminder:")
 			return
 		}
 
 		states[usr] = idle
 
 		text := fmt.Sprintf("I got it, I'll remind you about your memos at %s in %s time zone", reminderAt, rp.TimeZone)
-		msg := tg.NewMessage(cht, text)
-		if _, err := ctx.Bot.Send(msg); err != nil {
-			ctx.Logger.Errorw("failed on setting reminder:", "err", err)
+		msg := tg.NewMessage(usr, text)
+		if _, err := b.Bot.Send(msg); err != nil {
+			b.Logger.Errorw("failed on setting reminder:", "err", err)
 			return
 		}
 	}
 }
 
-func updateTimeZone(ctx *bot.Context, usr int64, loc *tg.Location) string {
+func (b *TBot) SendMessage(usr int64, txt string, replyMessageID int) error {
+	m := tg.NewMessage(usr, txt)
+	if replyMessageID >= 0 {
+		m.ReplyToMessageID = replyMessageID
+	}
+	m.ParseMode = tg.ModeHTML
+	m.DisableWebPagePreview = true
+
+	var err error
+	bot.RobustExecute(b.RetryAttempts, b.RetryDelay, func() bool {
+		_, err = b.Bot.Send(m)
+		if err != nil {
+			b.Logger.Errorw("failed sending message", "err", err)
+		}
+		return err == nil
+	})
+	return err
+}
+
+func (b *TBot) updateTimeZone(usr int64, loc *tg.Location) (string, error) {
 	l := timezone.GeoLocation{
 		Latitude:  timezone.DegToRad(float32(loc.Latitude)),
 		Longitude: timezone.DegToRad(float32(loc.Longitude)),
 	}
 	zone, err := l.FindZone()
 	if err != nil {
-		ctx.Logger.Error("failed updating time zone")
+		return "", errors.Wrap(err, "failed find time zone")
 	}
 
-	ctx.Logger.Debugf("handling location: (%f, %f) -> (%f; %f) -> %s",
+	b.Logger.Debugf("handling location: (%f, %f) -> (%f; %f) -> %s",
 		l.Latitude, l.Longitude, zone.GeoLocation.Latitude, zone.GeoLocation.Longitude, zone.TZ)
 
-	ok := db.UpdateTZ(ctx, usr, zone.GeoLocation, zone.TZ)
-	if !ok {
-		return ""
+	err = b.DB.UpdateTZ(usr, zone.GeoLocation, zone.TZ)
+	if err != nil {
+		return "", errors.Wrap(err, "failed updating time zone in DB")
 	}
 
-	ok = reminder.Set(ctx, usr)
-	if !ok {
-		ctx.Logger.Warn("failed setting reminder")
+	err = b.ReminderManager.Set(usr)
+	if err != nil {
+		return "", errors.Wrap(err, "failed setting reminder")
 	}
 
-	return zone.TZ
+	return zone.TZ, nil
 }
 
-func delMemo(ctx *bot.Context, usr, cht int64, replyID int, text string) {
-	n := db.GetLenMemos(ctx, cht)
+func (b *TBot) delMemo(usr int64, replyID int, text string) error {
+	n, err := b.DB.GetLenMemos(usr)
+	if err != nil {
+		return err
+	}
 	val, err := validateInt(text, 1, n)
 	if err != nil {
-		sendErrorMessage(ctx, cht, replyID, "I expected a number in the range of 1-"+strconv.Itoa(n))
-		return
+		return b.SendMessage(usr, "I expected a number in the range of 1-"+strconv.Itoa(n), replyID)
 	}
 
-	db.Delete(ctx, cht, val)
-	list := db.ListFirstMemos(ctx, cht, 5, true)
-	if _, err = sendMemosForToday(ctx, cht, &list, nil); err != nil {
-		ctx.Logger.Errorw("failed on sanding today's list:", "err", err)
+	err = b.DB.Delete(usr, val)
+	if err != nil {
+		return err
+	}
+	list, err := b.DB.ListFirstMemos(usr, 5, true)
+	if err != nil {
+		return err
+	}
+	err = b.SendMemosForToday(usr, &list, nil)
+	if err != nil {
+		b.Logger.Errorw("failed on sanding today's list:", "err", err)
 	}
 	states[usr] = idle
+	return nil
 }
 
-func markAsDone(ctx *bot.Context, usr, cht int64, replyID int, text string) {
-	n := db.GetLenMemos(ctx, cht)
+func (b *TBot) markAsDone(usr int64, replyID int, text string) {
+	n, err := b.DB.GetLenMemos(usr)
+	if err != nil {
+		b.Logger.Errorw("failed getting number of memos", "err", err)
+		return
+	}
 	val, err := validateInt(text, 1, n)
 	if err != nil {
-		sendErrorMessage(ctx, cht, replyID, "I expected a number in the range of 1-"+strconv.Itoa(n))
+		b.SendMessage(usr, "I expected a number in the range of 1-"+strconv.Itoa(n), replyID)
 		return
 	}
 
-	db.Done(ctx, cht, val)
-	active, done := db.ListAllMemos(ctx, cht, true)
-	if _, err = sendMemosForToday(ctx, cht, &active, &done); err != nil {
-		ctx.Logger.Errorw("failed on sanding today's list:", "err", err)
+	err = b.DB.Done(usr, val)
+	if err != nil {
+		b.Logger.Errorw("failed marking memo as done", "err", err)
+		return
+	}
+
+	active, done, err := b.DB.ListAllMemos(usr, true)
+	if err != nil {
+		b.Logger.Errorw("failed listing memos", "err", err)
+	}
+
+	err = b.SendMemosForToday(usr, &active, &done)
+	if err != nil {
+		b.Logger.Errorw("failed on sanding today's list:", "err", err)
 	}
 	states[usr] = idle
 }
@@ -172,44 +252,51 @@ func validateInt(text string, min int, max int) (int, error) {
 	return val, nil
 }
 
-func HandleCommand(ctx *bot.Context, message *tg.Message) {
+func (b *TBot) HandleCommand(message *tg.Message) {
 	usr := message.From.ID
-	cht := message.Chat.ID
 
 	state, ok := states[usr]
 	if ok && state != idle {
-		resetState(ctx, usr, cht)
+		b.resetState(usr)
 	}
 
 	// TODO: make sure that trailing spaces won't be interpreted as long command
 	cmd := message.Command()
 	switch cmd {
 	case "start":
-		err := db.CreateUser(ctx, usr, cht)
+		err := b.DB.CreateUser(usr)
 		if err != nil {
-			ctx.Logger.Errorw("failed initializing user", "err", err)
+			b.Logger.Errorw("failed initializing user", "err", err)
 			return
 		}
 
-		ok := reminder.Set(ctx, usr)
-		if !ok {
-			ctx.Logger.Warn("failed setting reminder")
+		err = b.ReminderManager.Set(usr)
+		if err != nil {
+			b.Logger.Warn("failed setting reminder")
 			return
 		}
 
-		ctx.Logger.Info("user has started the bot")
+		b.Logger.Info("user has started the bot")
 
-		msg := tg.NewMessage(cht, "Hello, I'm an experienced memo keeper. I write down your memos and remind about them from time to time. By the way, you can tell me when to send you the reminder, so I won't wake you up when you decided to stay in bed ;) Send me your location so I'll know in which time zone is your time")
-		if _, err := ctx.Bot.Send(msg); err != nil {
-			ctx.Logger.Errorw("failed on sending hello message:", "err", err)
+		txt := "Hello, I'm an experienced memo keeper. I write down your memos and remind about them from time to time. By the way, you can tell me when to send you the reminder, so I won't wake you up when you decided to stay in bed ;) Send me your location so I'll know in which time zone is your time"
+		err = b.SendMessage(usr, txt, -1)
+		if err != nil {
+			b.Logger.Errorw("failed on sending hello message:", "err", err)
 		}
-		list := db.ListFullMemos(ctx, cht, false)
-		if _, err := sendMemosForToday(ctx, cht, &list, nil); err != nil {
-			ctx.Logger.Errorw("failed on '/start:'", "err", err)
+
+		list, err := b.DB.ListFullMemos(usr, false)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos")
+			return
+		}
+
+		err = b.SendMemosForToday(usr, &list, nil)
+		if err != nil {
+			b.Logger.Errorw("failed on '/start:'", "err", err)
 		}
 
 	case "help":
-		msg := tg.NewMessage(cht, `As you may know, I keep your memos in order and periodically remind about them. You can send me a message or one of these commands:
+		txt := `As you may know, I keep your memos in order and periodically remind about them. You can send me a message or one of these commands:
 /list - to see short list of your memos
 /listall - to see full list of your memos
 /ins - to add a new memo at the beginning of the list
@@ -217,39 +304,49 @@ func HandleCommand(ctx *bot.Context, message *tg.Message) {
 /del - to immediately delete the memo
 /done - to mark the memo as done, I'll delete done memos in approximately 24 hours
 /remindat - to let me know when to send you a reminder (send location to update time zone)
-/settings - to list settings`)
-		if _, err := ctx.Bot.Send(msg); err != nil {
-			ctx.Logger.Errorw("failed on '/help':", "err", err)
+/settings - to list settings`
+		err := b.SendMessage(usr, txt, -1)
+		if err != nil {
+			b.Logger.Errorw("failed on '/help':", "err", err)
 		}
 
 	case "list":
-		list := db.ListFirstMemos(ctx, cht, 5, true)
-		if _, err := sendMemosForToday(ctx, cht, &list, nil); err != nil {
-			ctx.Logger.Errorw("failed on '/list:'", "err", err)
+		list, err := b.DB.ListFirstMemos(usr, 5, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			return
+		}
+
+		if err := b.SendMemosForToday(usr, &list, nil); err != nil {
+			b.Logger.Errorw("failed on '/list:'", "err", err)
 		}
 
 	case "listall":
-		active, done := db.ListAllMemos(ctx, cht, false)
-		if _, err := sendMemosForToday(ctx, cht, &active, &done); err != nil {
-			ctx.Logger.Errorw("failed on '/listall:'", "err", err)
+		active, done, err := b.DB.ListAllMemos(usr, false)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			return
+		}
+
+		if err := b.SendMemosForToday(usr, &active, &done); err != nil {
+			b.Logger.Errorw("failed on '/listall:'", "err", err)
 		}
 
 	case "add":
 		if len(message.Text) > len("/add") {
 			text := message.Text[len("/add "):]
-			ok := db.AddMemo(ctx, cht, text)
-			if !ok {
+			err := b.DB.AddMemo(usr, text)
+			if err != nil {
+				b.Logger.Errorw("failed adding memo", "err", err)
 				return
 			}
-			msg := tg.NewMessage(cht, "Added to the end of the list")
-			msg.ReplyToMessageID = message.MessageID
-			ctx.Bot.Send(msg)
+			err = b.SendMessage(usr, "Added to the end of the list", -1)
 			return
 		}
 
-		msg := tg.NewMessage(cht, "What's your memo?")
-		if _, err := ctx.Bot.Send(msg); err != nil {
-			ctx.Logger.Errorw("failed on '/add':", "err", err)
+		err := b.SendMessage(usr, "What's your memo?", -1)
+		if err != nil {
+			b.Logger.Errorw("failed adding memo", "err", err)
 			return
 		}
 		states[usr] = add
@@ -257,20 +354,22 @@ func HandleCommand(ctx *bot.Context, message *tg.Message) {
 	case "ins":
 		if len(message.Text) > len("/ins") {
 			text := message.Text[len("/ins "):]
-			ok := db.InsertMemo(ctx, cht, text)
-			if !ok {
+			err := b.DB.InsertMemo(usr, text)
+			if err != nil {
+				b.Logger.Errorw("failed inserting memo", "err", err)
 				return
 			}
 
-			msg := tg.NewMessage(cht, "Now it's your top priority memo")
-			msg.ReplyToMessageID = message.MessageID
-			ctx.Bot.Send(msg)
+			err = b.SendMessage(usr, "Now it's your top priority memo", message.MessageID)
+			if err != nil {
+				b.Logger.Errorw("failed sending confirmation message", "err", err)
+			}
 			return
 		}
 
-		msg := tg.NewMessage(cht, "What's your memo?")
-		if _, err := ctx.Bot.Send(msg); err != nil {
-			ctx.Logger.Errorw("failed on '/ins':", "err", err)
+		err := b.SendMessage(usr, "What's your memo?", -1)
+		if err != nil {
+			b.Logger.Errorw("failed inserting memo", "err", err)
 			return
 		}
 		states[usr] = ins
@@ -278,13 +377,22 @@ func HandleCommand(ctx *bot.Context, message *tg.Message) {
 	case "del":
 		if len(message.Text) > len("/del") {
 			memo := strings.Trim(message.Text[len("/del "):], " ")
-			delMemo(ctx, usr, cht, message.MessageID, memo)
+			err := b.delMemo(usr, message.MessageID, memo)
+			if err != nil {
+				b.Logger.Errorw("failed deleting memo", "err", err)
+			}
 			return
 		}
 
-		list := db.ListFullMemos(ctx, cht, true) + "\n\nWhich memo do you want to delete?"
-		if _, err := sendMemosForToday(ctx, cht, &list, nil); err != nil {
-			ctx.Logger.Errorw("failed on '/del':", "err", err)
+		list, err := b.DB.ListFullMemos(usr, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos")
+			return
+		}
+		list += "\n\nWhich memo do you want to delete?"
+		err = b.SendMemosForToday(usr, &list, nil)
+		if err != nil {
+			b.Logger.Errorw("failed on '/del':", "err", err)
 			return
 		}
 		states[usr] = del
@@ -292,54 +400,60 @@ func HandleCommand(ctx *bot.Context, message *tg.Message) {
 	case "done":
 		if len(message.Text) > len("/done") {
 			memo := strings.Trim(message.Text[len("/done "):], " ")
-			markAsDone(ctx, usr, cht, message.MessageID, memo)
+			b.markAsDone(usr, message.MessageID, memo)
 			return
 		}
 
-		list := db.ListFullMemos(ctx, cht, false) + "\n\nWhich memo do you want to mark as done?"
-		if _, err := sendMemosForToday(ctx, cht, &list, nil); err != nil {
-			ctx.Logger.Errorw("failed on '/done':", "err", err)
+		list, err := b.DB.ListFullMemos(usr, false)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			return
+		}
+		list += "\n\nWhich memo do you want to mark as done?"
+
+		err = b.SendMemosForToday(usr, &list, nil)
+		if err != nil {
+			b.Logger.Errorw("failed on '/done':", "err", err)
 			return
 		}
 		states[usr] = done
 
 	case "reorder":
-		msg := tg.NewMessage(cht, "not implemented yet")
-		ctx.Bot.Send(msg)
+		b.SendMessage(usr, "not implemented yet", -1)
 
 	case "remindat":
 		if len(message.Text) > len("/remindat") {
 			text := message.Text[len("/remindat "):]
-			if !updateReminder(ctx, usr, text) {
-				ctx.Logger.Error("failed on '/remindat'")
+			if b.updateReminder(usr, text) != nil {
+				b.Logger.Error("failed on '/remindat'")
 				return
 			}
 
-			msg := tg.NewMessage(cht, "Gotcha, I'll remind at "+text)
-			if _, err := ctx.Bot.Send(msg); err != nil {
-				ctx.Logger.Errorw("failed confirming '/remindat'", "err", err)
+			err := b.SendMessage(usr, "Gotcha, I'll remind at "+text, -1)
+			if err != nil {
+				b.Logger.Errorw("failed confirming '/remindat'", "err", err)
 				return
 			}
 
 			return
 		}
 
-		msg := tg.NewMessage(cht, "Enter hour and minute to send you a reminder in the format HH:MM. Send location to update timezone")
-		if _, err := ctx.Bot.Send(msg); err != nil {
-			ctx.Logger.Errorw("failed on '/remindat'", "err", err)
+		err := b.SendMessage(usr, "Enter hour and minute to send you a reminder in the format HH:MM. Send location to update timezone", -1)
+		if err != nil {
+			b.Logger.Errorw("failed on '/remindat'", "err", err)
 			return
 		}
 		states[usr] = remindat
 
 	case "settings":
-		rp, ok := db.GetRemindParams(ctx, usr)
-		if !ok {
-			ctx.Logger.Error("failed getting user config")
+		rp, err := b.DB.GetRemindParams(usr)
+		if err != nil {
+			b.Logger.Warn("failed getting user config")
 		}
 
 		var text string
 		if rp == nil {
-			ctx.Logger.Errorw("no remind params found")
+			b.Logger.Errorw("no remind params found")
 			text = "I don't see remind time"
 		} else {
 			h := rp.RemindAt / 60
@@ -347,39 +461,50 @@ func HandleCommand(ctx *bot.Context, message *tg.Message) {
 			text = fmt.Sprintf("Reminder time: %02d:%02d (%s).\n\nUse command /remindat to change the time.\nSend location to update time zone.", h, m, rp.TimeZone)
 		}
 
-		msg := tg.NewMessage(cht, text)
-		if _, err := ctx.Bot.Send(msg); err != nil {
-			ctx.Logger.Errorw("failed on '/settings':", "err", err)
+		err = b.SendMessage(usr, text, -1)
+		if err != nil {
+			b.Logger.Errorw("failed on '/settings':", "err", err)
 		}
 
 	default:
-		sendErrorMessage(ctx, cht, message.MessageID, "I don't known this command. Use /help to list commands I know")
+		b.SendMessage(usr, "I don't known this command. Use /help to list commands I know", message.MessageID)
 	}
 
-	ctx.Logger.Infof("Command %s was successfully handled", cmd)
+	b.Logger.Infof("Command %s was successfully handled", cmd)
 }
 
-func addMemo(ctx *bot.Context, usr, cht int64, text string) {
-	db.AddMemo(ctx, cht, text)
-	list := db.ListFirstMemos(ctx, cht, 5, true)
-	if _, err := sendMemosForToday(ctx, cht, &list, nil); err != nil {
-		ctx.Logger.Errorw("failed on sending today's list:", "err", err)
+func (b *TBot) addMemo(usr int64, text string) {
+	b.DB.AddMemo(usr, text)
+	list, err := b.DB.ListFirstMemos(usr, 5, true)
+	if err != nil {
+		b.Logger.Errorw("failed adding memo", "err", err)
+		return
+	}
+
+	err = b.SendMemosForToday(usr, &list, nil)
+	if err != nil {
+		b.Logger.Errorw("failed on sending today's list:", "err", err)
 	} else {
 		states[usr] = idle
 	}
 }
 
-func insertMemo(ctx *bot.Context, usr, cht int64, text string) {
-	db.InsertMemo(ctx, cht, text)
-	list := db.ListFirstMemos(ctx, cht, 5, true)
-	if _, err := sendMemosForToday(ctx, cht, &list, nil); err != nil {
-		ctx.Logger.Errorw("failed on sending today's list:", "err", err)
+func (b *TBot) insertMemo(usr int64, text string) {
+	b.DB.InsertMemo(usr, text)
+	list, err := b.DB.ListFirstMemos(usr, 5, true)
+	if err != nil {
+		b.Logger.Errorw("failed listing memos", "err", err)
+		return
+	}
+
+	if err := b.SendMemosForToday(usr, &list, nil); err != nil {
+		b.Logger.Errorw("failed on sending today's list:", "err", err)
 	} else {
 		states[usr] = idle
 	}
 }
 
-func sendMemosForToday(ctx *bot.Context, cht int64, active, done *string) (tg.Message, error) {
+func (b *TBot) SendMemosForToday(usr int64, active, done *string) error {
 	var sb strings.Builder
 
 	n := len(noMemosAddNow) + len(yourMemosForToday) + len(lineSep)
@@ -404,60 +529,49 @@ func sendMemosForToday(ctx *bot.Context, cht int64, active, done *string) (tg.Me
 		sb.WriteString(*done)
 	}
 
-	msg := tg.NewMessage(cht, sb.String())
-	return ctx.Bot.Send(msg)
+	return b.SendMessage(usr, sb.String(), -1)
 }
 
-func resetState(ctx *bot.Context, usr, cht int64) {
-	msg := tg.NewMessage(cht, "You've started another command. Cancelling ongoing operation")
-	if _, err := ctx.Bot.Send(msg); err != nil {
-		ctx.Logger.Errorw("failed resetting state:", "err", err)
-	}
+func (b *TBot) resetState(usr int64) {
+	b.SendMessage(usr, "You've started another command. Cancelling ongoing operation", -1)
 	states[usr] = idle
 }
 
-func sendErrorMessage(ctx *bot.Context, cht int64, replyID int, s string) {
-	msg := tg.NewMessage(cht, s)
-	msg.ReplyToMessageID = replyID
-	if _, err := ctx.Bot.Send(msg); err != nil {
-		var errMsg strings.Builder
-		errMsg.WriteString("failed on sending error message '")
-		errMsg.WriteString(s)
-		errMsg.WriteString("': ")
-		ctx.Logger.Errorw(errMsg.String(), "err", err)
-	}
-}
-
-// SendReminder is a callback that's invoked by reminder
-func SendReminder(ctx *bot.Context, cht int64) {
-	list := db.ListFirstMemos(ctx, cht, 5, true)
-	if _, err := sendMemosForToday(ctx, cht, &list, nil); err != nil {
-		ctx.Logger.Errorw("failed on '/list:'", "err", err)
-	}
-}
-
-func updateReminder(ctx *bot.Context, usr int64, text string) bool {
+func (b *TBot) updateReminder(usr int64, text string) error {
 	parts := strings.Split(text, ":")
 	if len(parts) != 2 {
-		return false
+		return errors.New("unknown format")
 	}
 
 	hour, err := validateInt(parts[0], 0, 23)
 	if err != nil {
-		return false
+		return err
 	}
 
 	min, err := validateInt(parts[1], 0, 59)
 	if err != nil {
-		return false
+		return err
 	}
 
 	t := hour*60 + min
-	ok := db.SetRemindAt(ctx, usr, t)
-	if !ok {
-		return false
+	err = b.DB.SetRemindAt(usr, t)
+	if err != nil {
+		return err
 	}
 
-	reminder.Set(ctx, usr)
-	return true
+	return b.ReminderManager.Set(usr)
+}
+
+// SendReminder is a callback that's invoked by reminder
+func (b *TBot) SendReminder(usr int64) {
+	list, err := b.DB.ListFirstMemos(usr, 5, true)
+	if err != nil {
+		b.Logger.Errorw("failed fetching first memos", "err", err)
+		return
+	}
+
+	err = b.SendMemosForToday(usr, &list, nil)
+	if err != nil {
+		b.Logger.Errorw("failed on '/list:'", "err", err)
+	}
 }

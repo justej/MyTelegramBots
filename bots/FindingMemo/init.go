@@ -6,64 +6,85 @@ import (
 	"botfarm/bots/FindingMemo/reminder"
 	"botfarm/bots/FindingMemo/tgbot"
 	"botfarm/bots/FindingMemo/timezone"
+	"errors"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"go.uber.org/zap"
 )
 
-type FindingMemo struct{}
+type FindingMemo struct {
+	*tgbot.TBot
+}
 
-func (fm *FindingMemo) Init(cfg *bot.Config, l *zap.SugaredLogger) (*bot.Context, error) {
+func requiredConfigFields() []string {
+	return []string{
+		bot.CfgDbConnStr,
+		bot.CfgTgToken,
+	}
+}
+
+func (fm *FindingMemo) Name() string {
+	return "FindingMemo"
+}
+
+func (fm *FindingMemo) Init(cfg bot.Config, l *zap.SugaredLogger) error {
+	// Time zone
 	err := timezone.Init()
 	if err != nil {
 		l.Errorw("failed to initialize time zones", "err", err)
-		return nil, err
+		return err
 	}
 
-	d, err := db.Init(cfg.DBConnStr)
+	// Database
+	v, ok := cfg[bot.CfgDbConnStr].(string)
+	if !ok {
+		l.Error("failed fetching connection string")
+		return errors.New("configuration value doesn't exist")
+	}
+	d, err := db.NewDatabase(v)
 	if err != nil {
 		l.Errorw("failed to initialize database", "err", err)
-		return nil, err
+		return err
 	}
 
-	b, err := tg.NewBotAPI(cfg.TgToken)
+	// TBot
+	v, ok = cfg[bot.CfgTgToken].(string)
+	if !ok {
+		l.Error("failed fetching Telegram token")
+		return errors.New("configuration value doesn't exist")
+	}
+
+	fm.TBot, err = tgbot.NewTBot(v, d, l)
 	if err != nil {
-		l.Errorw("failed to initialize Telegram Bot", "err", err)
-		return nil, err
+		return errors.New("failed creating TBot")
 	}
 
-	b.Debug = false
+	// Reminder
+	rm := reminder.NewManager(d, fm.TBot.SendReminder, l)
+	fm.TBot.ReminderManager = rm
 
-	l.Infof("authorized on account %q", b.Self.UserName)
-
-	ctx := &bot.Context{Bot: b, DB: d, Logger: l}
-
-	reminder.Init(ctx, tgbot.SendReminder)
-
-	return ctx, nil
+	return nil
 }
 
-func (fm *FindingMemo) Run(ctx *bot.Context) {
-	if ctx.Bot == nil {
-		ctx.Logger.Warn("Bot can't run")
-		return
-	}
+func (fm *FindingMemo) Run() {
+	// Run reminder
+	fm.TBot.ReminderManager.Run()
 
+	// Run bot
 	uCfg := tg.NewUpdate(0)
 	uCfg.Timeout = 60
 
-	for u := range ctx.Bot.GetUpdatesChan(uCfg) {
+	for u := range fm.TBot.Bot.GetUpdatesChan(uCfg) {
 		if u.Message != nil {
-			ctx := ctx.CloneWith(u.Message.From.ID)
 			if u.Message.IsCommand() {
-				go tgbot.HandleCommand(ctx, u.Message)
+				go fm.TBot.HandleCommand(u.Message)
 			} else {
-				go tgbot.HandleMessage(ctx, u.Message)
+				go fm.TBot.HandleMessage(u.Message)
 			}
 		}
 	}
 }
 
 func init() {
-	bot.Register("FindingMemoBot", &FindingMemo{})
+	bot.Register(&FindingMemo{}, requiredConfigFields())
 }

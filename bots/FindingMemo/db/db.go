@@ -1,12 +1,13 @@
 package db
 
 import (
-	"botfarm/bot"
 	"database/sql"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -22,7 +23,13 @@ func min(x, y int) int {
 	return y
 }
 
-func Init(connStr string) (*sql.DB, error) {
+type Database struct {
+	db            *sql.DB
+	RetryAttempts int
+	Timeout       time.Duration
+}
+
+func NewDatabase(connStr string) (*Database, error) {
 	// connection string should look like postgresql://localhost:5432/finding_memo?user=admn&password=passwd
 	d, err := sql.Open("pgx", connStr)
 	if err != nil {
@@ -33,42 +40,48 @@ func Init(connStr string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	return d, nil
+	return &Database{db: d}, nil
 }
 
-func ListAllMemos(ctx *bot.Context, cht int64, short bool) (string, string) {
-	rows, err := getMemosRows(ctx, cht)
+func (d *Database) ListAllMemos(cht int64, short bool) (string, string, error) {
+	rows, err := d.getMemosRows(cht)
 	if err != nil {
-		ctx.Logger.Errorw("failed querying memos", "err", err)
-		return "", ""
+		return "", "", err
 	}
 	defer rows.Close()
 
-	active, done := extractMemos(ctx, rows)
-	return listMemos(active, short), listMemos(done, short)
+	active, done, err := extractMemos(rows)
+	if err != nil {
+		return "", "", err
+	}
+	return listMemos(active, short), listMemos(done, short), nil
 }
 
-func ListFullMemos(ctx *bot.Context, cht int64, short bool) string {
-	rows, err := getMemosRows(ctx, cht)
+func (d *Database) ListFullMemos(usr int64, short bool) (string, error) {
+	rows, err := d.getMemosRows(usr)
 	if err != nil {
-		ctx.Logger.Errorw("failed querying memos", "err", err)
-		return ""
+		return "", errors.Wrap(err, "failed querying memos")
 	}
 	defer rows.Close()
 
-	activeMemos, _ := extractMemos(ctx, rows)
-	return listMemos(activeMemos, short)
+	activeMemos, _, err := extractMemos(rows)
+	if err != nil {
+		return "", err
+	}
+	return listMemos(activeMemos, short), nil
 }
 
-func ListFirstMemos(ctx *bot.Context, cht int64, n int, short bool) string {
-	rows, err := getMemosRows(ctx, cht)
+func (d *Database) ListFirstMemos(cht int64, n int, short bool) (string, error) {
+	rows, err := d.getMemosRows(cht)
 	if err != nil {
-		ctx.Logger.Errorw("failed querying memos", "err", err)
-		return ""
+		return "", err
 	}
 	defer rows.Close()
 
-	activeMemos, _ := extractMemos(ctx, rows)
+	activeMemos, _, err := extractMemos(rows)
+	if err != nil {
+		return "", err
+	}
 	if len(activeMemos) < n {
 		n = len(activeMemos)
 	}
@@ -78,41 +91,45 @@ func ListFirstMemos(ctx *bot.Context, cht int64, n int, short bool) string {
 		list += "\n..."
 	}
 
-	return list
+	return list, nil
 }
 
-func ListActiveMemos(ctx *bot.Context, cht int64, short bool) []Memo {
-	rows, err := getMemosRows(ctx, cht)
+func (d *Database) ListActiveMemos(cht int64, short bool) ([]Memo, error) {
+	rows, err := d.getMemosRows(cht)
 	if err != nil {
-		ctx.Logger.Errorw("failed querying memos", "err", err)
-		return []Memo{}
+		return []Memo{}, err
 	}
 	defer rows.Close()
 
-	activeMemos, _ := extractMemos(ctx, rows)
-	return activeMemos
+	activeMemos, _, err := extractMemos(rows)
+	if err != nil {
+		return []Memo{}, err
+	}
+	return activeMemos, nil
 }
 
 // Done marks the task as done
-func Done(ctx *bot.Context, cht int64, n int) {
-	markAs(ctx, memoStateDone, cht, n)
+func (d *Database) Done(cht int64, n int) error {
+	return d.markAs(memoStateDone, cht, n)
 }
 
 // Delete soft-deletes the task
-func Delete(ctx *bot.Context, cht int64, n int) {
-	markAs(ctx, memoStateDeleted, cht, n)
+func (d *Database) Delete(cht int64, n int) error {
+	return d.markAs(memoStateDeleted, cht, n)
 }
 
-func GetLenMemos(ctx *bot.Context, cht int64) int {
-	rows, err := getMemosRows(ctx, cht)
+func (d *Database) GetLenMemos(usr int64) (int, error) {
+	rows, err := d.getMemosRows(usr)
 	if err != nil {
-		ctx.Logger.Errorw("failed to count done memos", "err", err)
-		return 0
+		return 0, err
 	}
 	defer rows.Close()
 
-	activeMemos, _ := extractMemos(ctx, rows)
-	return len(activeMemos)
+	activeMemos, _, err := extractMemos(rows)
+	if err != nil {
+		return 0, err
+	}
+	return len(activeMemos), nil
 }
 
 func listMemos(memos []Memo, short bool) string {
