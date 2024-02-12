@@ -57,8 +57,8 @@ func (r *Manager) Run() {
 	go remind(ch, r.reminderQueue)
 }
 
-func (r *Manager) Set(usr int64) error {
-	rp, err := r.db.GetRemindParams(usr)
+func (m *Manager) Set(usr int64) error {
+	rp, err := m.db.GetRemindParams(usr)
 	if err != nil {
 		return errors.Wrap(err, "failed getting reminder parameters")
 	}
@@ -70,25 +70,25 @@ func (r *Manager) Set(usr int64) error {
 	// TODO: add location cache
 	loc, err := time.LoadLocation(rp.TimeZone)
 	if err != nil {
-		r.logger.Errorw("failed loading location; using UTC time zone", "err", err)
+		m.logger.Errorw("failed loading location; using UTC time zone", "err", err)
 		loc = time.UTC
 	}
 
-	h := rp.RemindAt / 60
-	m := rp.RemindAt - 60*h
+	hh := rp.RemindAt / 60
+	mm := rp.RemindAt - 60*hh
 	now := clk.Now().In(loc)
 
 	// TODO: compare current time with last seen
-	if (h < now.Hour()) || (h == now.Hour() && m <= now.Minute()) {
+	if (hh < now.Hour()) || (hh == now.Hour() && mm <= now.Minute()) {
 		now = now.Add(24 * time.Hour)
 	}
 
 	reminder := &Reminder{
 		usr: usr,
-		at:  time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, loc).UTC(),
+		at:  time.Date(now.Year(), now.Month(), now.Day(), hh, mm, 0, 0, loc).UTC(),
 	}
 
-	heap.Push(r.reminderQueue, reminder)
+	heap.Push(m.reminderQueue, reminder)
 
 	return nil
 }

@@ -43,8 +43,8 @@ func NewDatabase(connStr string) (*Database, error) {
 	return &Database{db: d}, nil
 }
 
-func (d *Database) ListAllMemos(cht int64, short bool) (string, string, error) {
-	rows, err := d.getMemosRows(cht)
+func (d *Database) ListAllMemos(usr int64, short bool) (string, string, error) {
+	rows, err := d.getMemosRows(usr)
 	if err != nil {
 		return "", "", err
 	}
@@ -71,8 +71,8 @@ func (d *Database) ListFullMemos(usr int64, short bool) (string, error) {
 	return listMemos(activeMemos, short), nil
 }
 
-func (d *Database) ListFirstMemos(cht int64, n int, short bool) (string, error) {
-	rows, err := d.getMemosRows(cht)
+func (d *Database) ListFirstMemos(usr int64, n int, short bool) (string, error) {
+	rows, err := d.getMemosRows(usr)
 	if err != nil {
 		return "", err
 	}
@@ -94,8 +94,8 @@ func (d *Database) ListFirstMemos(cht int64, n int, short bool) (string, error) 
 	return list, nil
 }
 
-func (d *Database) ListActiveMemos(cht int64, short bool) ([]Memo, error) {
-	rows, err := d.getMemosRows(cht)
+func (d *Database) ListActiveMemos(usr int64, short bool) ([]Memo, error) {
+	rows, err := d.getMemosRows(usr)
 	if err != nil {
 		return []Memo{}, err
 	}
@@ -109,13 +109,13 @@ func (d *Database) ListActiveMemos(cht int64, short bool) ([]Memo, error) {
 }
 
 // Done marks the task as done
-func (d *Database) Done(cht int64, n int) error {
-	return d.markAs(memoStateDone, cht, n)
+func (d *Database) Done(usr int64, n int) error {
+	return d.markAs(memoStateDone, usr, n)
 }
 
 // Delete soft-deletes the task
-func (d *Database) Delete(cht int64, n int) error {
-	return d.markAs(memoStateDeleted, cht, n)
+func (d *Database) Delete(usr int64, n int) error {
+	return d.markAs(memoStateDeleted, usr, n)
 }
 
 func (d *Database) GetLenMemos(usr int64) (int, error) {
