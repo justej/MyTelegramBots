@@ -1,6 +1,7 @@
 package db
 
 import (
+	"botfarm/bot"
 	"botfarm/bots/FindingMemo/timezone"
 	"context"
 	"database/sql"
@@ -112,7 +113,7 @@ WHERE chat_id=$1 AND state=$2`, c, memoStateActive); err != nil {
 		return errors.Wrap(err, "failed to update priorities")
 	}
 	if _, err = tx.Exec(`INSERT INTO memos(chat_id, text, state, priority, timestamp)
-VALUES($1, $2, $3, 1, $4)`, c, text, memoStateActive, clk.Now().UTC()); err != nil {
+VALUES($1, $2, $3, $4, $5)`, c, text, memoStateActive, priorityMinValue, clk.Now().UTC()); err != nil {
 		return errors.Wrap(err, "failed to insert memo")
 	}
 	if err = tx.Commit(); err != nil {
@@ -124,7 +125,7 @@ VALUES($1, $2, $3, 1, $4)`, c, text, memoStateActive, clk.Now().UTC()); err != n
 
 // markAs updates memo status of the given memo
 func (d *Database) markAs(state uint, usr int64, n int) error {
-	if n < 0 {
+	if n < priorityMinValue {
 		return errors.New("argument can't be negative")
 	}
 
@@ -207,4 +208,49 @@ func (d *Database) UpdateTZ(usr int64, loc *timezone.GeoLocation, tz string) err
 		return errors.Wrap(err, "failed updating time zone")
 	}
 	return nil
+}
+
+func (d *Database) MakeFirst(usr int64, n int) error {
+	if n < priorityMinValue {
+		return errors.New("argument can't be negative")
+	}
+
+	if n == priorityMinValue {
+		return nil
+	}
+
+	var err error
+	bot.RobustExecute(d.RetryAttempts, d.RetryDelay, func() bool {
+		d.db.Exec(`UPDATE memos
+SET priority=CASE
+	WHEN priority=$1 THEN $2
+	ELSE priority+1
+END
+WHERE chat_id=$3 AND state=$4 AND priority<=$1`, n, priorityMinValue, usr, memoStateActive)
+		return err == nil
+	})
+
+	return err
+}
+
+func (d *Database) MakeLast(usr int64, n int) error {
+	if n < priorityMinValue {
+		return errors.New("argument can't be negative")
+	}
+
+	var err error
+	bot.RobustExecute(d.RetryAttempts, d.RetryDelay, func() bool {
+		d.db.Exec(`WITH max_priority AS (
+	SELECT MAX(priority) AS value FROM memos WHERE chat_id=$2 AND state=$3
+)
+UPDATE memos
+SET priority=CASE
+	WHEN priority=$1 THEN (SELECT value FROM max_priority)
+	ELSE priority-1
+END
+WHERE chat_id=$2 AND state=$3 AND priority>=$1`, n, usr, memoStateActive)
+		return err == nil
+	})
+
+	return err
 }

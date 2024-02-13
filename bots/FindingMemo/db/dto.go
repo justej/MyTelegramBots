@@ -8,6 +8,10 @@ const (
 	memoStateDeleted
 )
 
+const (
+	priorityMinValue = 1
+)
+
 type Memo struct {
 	ID       int
 	Text     string    // memo text

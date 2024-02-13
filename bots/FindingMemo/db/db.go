@@ -26,10 +26,11 @@ func min(x, y int) int {
 type Database struct {
 	db            *sql.DB
 	RetryAttempts int
+	RetryDelay    time.Duration
 	Timeout       time.Duration
 }
 
-func NewDatabase(connStr string) (*Database, error) {
+func NewDatabase(connStr string, attempts int, delay, timeout time.Duration) (*Database, error) {
 	// connection string should look like postgresql://localhost:5432/finding_memo?user=admn&password=passwd
 	d, err := sql.Open("pgx", connStr)
 	if err != nil {
@@ -40,7 +41,7 @@ func NewDatabase(connStr string) (*Database, error) {
 		return nil, err
 	}
 
-	return &Database{db: d}, nil
+	return &Database{db: d, RetryAttempts: attempts, RetryDelay: delay, Timeout: timeout}, nil
 }
 
 func (d *Database) ListAllMemos(usr int64, short bool) (string, string, error) {

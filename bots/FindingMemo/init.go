@@ -7,6 +7,7 @@ import (
 	"botfarm/bots/FindingMemo/tgbot"
 	"botfarm/bots/FindingMemo/timezone"
 	"errors"
+	"time"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"go.uber.org/zap"
@@ -41,7 +42,27 @@ func (fm *FindingMemo) Init(cfg bot.Config, l *zap.SugaredLogger) error {
 		l.Error("failed fetching connection string")
 		return errors.New("configuration value doesn't exist")
 	}
-	d, err := db.NewDatabase(v)
+
+	n, ok := cfg[bot.CfgDbRetryAttempts].(float32)
+	if !ok {
+		l.Info("retry timeout isn't set; using default value")
+		n = 1
+	}
+
+	delay, ok := cfg[bot.CfgDbRetryDelay].(float32)
+	if !ok {
+		l.Info("retry timeout isn't set; using default value")
+		delay = 1
+	}
+
+	timeout, ok := cfg[bot.CfgDbTimeout].(float32)
+	if !ok {
+		l.Info("retry timeout isn't set; using default value")
+		delay = 1
+	}
+
+	d, err := db.NewDatabase(v, int(n), (time.Duration(delay) * time.Second),
+		(time.Duration(timeout) * time.Second))
 	if err != nil {
 		l.Errorw("failed to initialize database", "err", err)
 		return err

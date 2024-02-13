@@ -24,6 +24,8 @@ const (
 	stageDel
 	stageDone
 	stageRemindAt
+	stageMakeFirst
+	stageMakeLast
 )
 
 const (
@@ -38,21 +40,23 @@ const (
 	txtErrorAccessingDatabase      = "Oops, I couldn't get your memos. Retry again. If it didn't help, try again later."
 	txtNothingToDelete             = "There's nothing to delete."
 	txtNothingToMarkDone           = "There's nothing to mark as done."
+	txtNothingMove                 = "There's no memos to move."
 	txtFailedDeleMemo              = "I failed to delete the memo. Please retry now or later."
 	txtFailedAddMemo               = "I failed to add the memo. Please retry now or later."
 	txtFailedInsertMemo            = "I failed to insert the memo. Please retry now or later."
 	txtFailedFetchMemos            = "I'm sorry, I couldn't fetch the list of memos."
 	txtFailedStartingBot           = "Hey, I couldn't start. Let's try again!"
 	txtFailedSetReminder           = "Hm. I couldn't set a reminder."
+	txtFailedReorder               = "Argh, I failed to move the memo!"
 	txtExpectedValidTimeFormat     = "I expect a valid time in the format HH:MM."
 	txtFailedUpdateReminder        = "Oh, no! I couldn't update the reminder! Try again!"
-	txtFailedFetchRemindParameters = "I'm sorry, I couldn't fetch the reminder parameters"
+	txtFailedFetchRemindParameters = "I'm sorry, I couldn't fetch the reminder parameters."
 
 	txtAddedMemo    = "Added at the end of the list."
-	txtInsertedMemo = "Now it's your top priority memo"
+	txtInsertedMemo = "Now it's your top priority memo."
 
-	txtSendMeMemo      = "Send me your memo"
-	txtEnterRemindTime = "Enter hour and minute to send you a reminder in the format HH:MM. Send location to update timezone"
+	txtSendMeMemo      = "Send me your memo."
+	txtEnterRemindTime = "Enter hour and minute to send you a reminder in the format HH:MM. Send location to update timezone."
 )
 
 var (
@@ -77,17 +81,18 @@ func makeCommand(name string) *Command {
 }
 
 var (
-	cmdStart    = makeCommand("start")
-	cmdAdd      = makeCommand("add")
-	cmdIns      = makeCommand("ins")
-	cmdDone     = makeCommand("done")
-	cmdDel      = makeCommand("del")
-	cmdList     = makeCommand("list")
-	cmdListAll  = makeCommand("listall")
-	cmdRemindAt = makeCommand("remindat")
-	cmdReorder  = makeCommand("reorder")
-	cmdHelp     = makeCommand("help")
-	cmdSettings = makeCommand("settings")
+	cmdStart     = makeCommand("start")
+	cmdAdd       = makeCommand("add")
+	cmdIns       = makeCommand("ins")
+	cmdDone      = makeCommand("done")
+	cmdDel       = makeCommand("del")
+	cmdList      = makeCommand("list")
+	cmdListAll   = makeCommand("listall")
+	cmdRemindAt  = makeCommand("remindat")
+	cmdMakeFirst = makeCommand("makefirst")
+	cmdMakeLast  = makeCommand("makelast")
+	cmdHelp      = makeCommand("help")
+	cmdSettings  = makeCommand("settings")
 )
 
 type TBot struct {
@@ -215,7 +220,16 @@ func (b *TBot) HandleMessage(msg *tg.Message) {
 		txt := fmt.Sprintf("I got it, I'll remind you about your memos at %s in %s time zone", remindAt, rp.TimeZone)
 		b.SendMessage(usr, txt, -1)
 		userState.stage = stageIdle
+
+	case stageMakeFirst:
+		b.reorder(usr, msg.MessageID, msg.Text, b.DB.MakeFirst)
+		userState.stage = stageIdle
+
+	case stageMakeLast:
+		b.reorder(usr, msg.MessageID, msg.Text, b.DB.MakeLast)
+		userState.stage = stageIdle
 	}
+
 }
 
 func (b *TBot) SendMessage(usr int64, txt string, replyMessageID int) error {
@@ -263,7 +277,7 @@ func (b *TBot) updateTimeZone(usr int64, loc *tg.Location) (string, error) {
 	return zone.TZ, nil
 }
 
-func (b *TBot) delMemo(usr int64, replyID int, text string) {
+func (b *TBot) delMemo(usr int64, replyID int, txt string) {
 	n, err := b.DB.GetLenMemos(usr)
 	if err != nil {
 		b.Logger.Errorw("failed getting number of memos", "err", err)
@@ -276,7 +290,7 @@ func (b *TBot) delMemo(usr int64, replyID int, text string) {
 		return
 	}
 
-	val, err := validateInt(text, 1, n)
+	val, err := validateInt(txt, 1, n)
 	if err != nil {
 		txt := fmt.Sprintf("I expected a number in the range of 1-%d", n)
 		b.SendMessage(usr, txt, replyID)
@@ -290,17 +304,17 @@ func (b *TBot) delMemo(usr int64, replyID int, text string) {
 		return
 	}
 
-	list, err := b.DB.ListFirstMemos(usr, 5, true)
+	active, done, err := b.DB.ListAllMemos(usr, true)
 	if err != nil {
 		b.Logger.Errorw("failed deleted memo", "err", err)
 		b.SendMessage(usr, txtFailedFetchMemos, -1)
 		return
 	}
 
-	b.SendMemosForToday(usr, list, "")
+	b.SendMemosForToday(usr, active, done)
 }
 
-func (b *TBot) markAsDone(usr int64, replyID int, text string) {
+func (b *TBot) markAsDone(usr int64, replyID int, txt string) {
 	n, err := b.DB.GetLenMemos(usr)
 	if err != nil {
 		b.Logger.Errorw("failed getting number of memos", "err", err)
@@ -312,7 +326,7 @@ func (b *TBot) markAsDone(usr int64, replyID int, text string) {
 		b.SendMessage(usr, txtNothingToMarkDone, -1)
 	}
 
-	val, err := validateInt(text, 1, n)
+	val, err := validateInt(txt, 1, n)
 	if err != nil {
 		txt := fmt.Sprintf("I expected a number in the range of 1-%d", n)
 		b.SendMessage(usr, txt, replyID)
@@ -399,8 +413,10 @@ func (b *TBot) HandleCommand(msg *tg.Message) {
 /ins - to add a new memo at the beginning of the list
 /add - to add a new memo at the end of the list
 /del - to immediately delete the memo
-/done - to mark the memo as done, I'll delete done memos in approximately 24 hours
+/done - to mark the memo as done, I'll hide done memos in approximately 24 hours
 /remindat - to let me know when to send you a reminder (send location to update time zone)
+/makefirst - to move a memo to the beginning of the list
+/makelast - to move a memo to the end of the list
 /settings - to list settings`
 		b.SendMessage(usr, txt, -1)
 
@@ -426,7 +442,7 @@ func (b *TBot) HandleCommand(msg *tg.Message) {
 
 	case cmdAdd.Name:
 		if len(msg.Text) > cmdAdd.Len {
-			txt := strings.Trim(msg.Text[cmdAdd.Len:], " ")
+			txt := strings.TrimSpace(msg.Text[cmdAdd.Len:])
 			b.addMemo(usr, txt)
 			return
 		}
@@ -440,7 +456,7 @@ func (b *TBot) HandleCommand(msg *tg.Message) {
 
 	case cmdIns.Name:
 		if len(msg.Text) > cmdIns.Len {
-			txt := strings.Trim(msg.Text[cmdIns.Len:], " ")
+			txt := strings.TrimSpace(msg.Text[cmdIns.Len:])
 			b.insertMemo(usr, txt)
 			return
 		}
@@ -454,8 +470,8 @@ func (b *TBot) HandleCommand(msg *tg.Message) {
 
 	case cmdDel.Name:
 		if len(msg.Text) > cmdDel.Len {
-			memo := strings.Trim(msg.Text[cmdDel.Len:], " ")
-			b.delMemo(usr, msg.MessageID, memo)
+			txt := strings.TrimSpace(msg.Text[cmdDel.Len:])
+			b.delMemo(usr, msg.MessageID, txt)
 			return
 		}
 
@@ -476,8 +492,8 @@ func (b *TBot) HandleCommand(msg *tg.Message) {
 
 	case cmdDone.Name:
 		if len(msg.Text) > cmdDone.Len {
-			memo := strings.Trim(msg.Text[cmdDel.Len:], " ")
-			b.markAsDone(usr, msg.MessageID, memo)
+			txt := strings.TrimSpace(msg.Text[cmdDel.Len:])
+			b.markAsDone(usr, msg.MessageID, txt)
 			return
 		}
 
@@ -496,19 +512,60 @@ func (b *TBot) HandleCommand(msg *tg.Message) {
 
 		userState.stage = stageDone
 
-	case cmdReorder.Name:
-		b.SendMessage(usr, "not implemented yet", -1)
+	case cmdMakeFirst.Name:
+		if len(msg.Text) > cmdMakeFirst.Len {
+			txt := strings.TrimSpace(msg.Text[cmdMakeFirst.Len:])
+			b.reorder(usr, msg.MessageID, txt, b.DB.MakeFirst)
+			return
+		}
+
+		list, err := b.DB.ListFullMemos(usr, false)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.SendMessage(usr, txtFailedFetchMemos, -1)
+			return
+		}
+		list += "\n\nWhich memo do you want to move to the beginning of the list?"
+
+		err = b.SendMemosForToday(usr, list, "")
+		if err != nil {
+			return
+		}
+
+		userState.stage = stageMakeFirst
+
+	case cmdMakeLast.Name:
+		if len(msg.Text) > cmdMakeLast.Len {
+			txt := strings.TrimSpace(msg.Text[cmdMakeLast.Len:])
+			b.reorder(usr, msg.MessageID, txt, b.DB.MakeLast)
+			return
+		}
+
+		list, err := b.DB.ListFullMemos(usr, false)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.SendMessage(usr, txtFailedFetchMemos, -1)
+			return
+		}
+		list += "\n\nWhich memo do you want to move to the end of the list?"
+
+		err = b.SendMemosForToday(usr, list, "")
+		if err != nil {
+			return
+		}
+
+		userState.stage = stageMakeLast
 
 	case cmdRemindAt.Name:
 		if len(msg.Text) > cmdRemindAt.Len {
-			text := msg.Text[cmdRemindAt.Len:]
-			if b.updateReminder(usr, text) != nil {
+			txt := msg.Text[cmdRemindAt.Len:]
+			if b.updateReminder(usr, txt) != nil {
 				b.Logger.Error("failed updating reminder")
 				b.SendMessage(usr, txtFailedUpdateReminder, -1)
 				return
 			}
 
-			b.SendMessage(usr, "Gotcha, I'll remind at "+text, -1)
+			b.SendMessage(usr, "Gotcha, I'll remind at "+txt, -1)
 			return
 		}
 
@@ -545,8 +602,8 @@ func (b *TBot) HandleCommand(msg *tg.Message) {
 	b.Logger.Infof("Command /%s was successfully handled", cmd)
 }
 
-func (b *TBot) addMemo(usr int64, text string) {
-	err := b.DB.AddMemo(usr, text)
+func (b *TBot) addMemo(usr int64, txt string) {
+	err := b.DB.AddMemo(usr, txt)
 	if err != nil {
 		b.Logger.Errorw("failed adding memo", "err", err)
 		b.SendMessage(usr, txtFailedAddMemo, -1)
@@ -563,8 +620,8 @@ func (b *TBot) addMemo(usr int64, text string) {
 	b.SendMemosForToday(usr, list, "")
 }
 
-func (b *TBot) insertMemo(usr int64, text string) {
-	err := b.DB.InsertMemo(usr, text)
+func (b *TBot) insertMemo(usr int64, txt string) {
+	err := b.DB.InsertMemo(usr, txt)
 	if err != nil {
 		b.Logger.Errorw("failed inserting memo", "err", err)
 		b.SendMessage(usr, txtFailedInsertMemo, -1)
@@ -603,8 +660,8 @@ func (b *TBot) SendMemosForToday(usr int64, active, done string) error {
 	return b.SendMessage(usr, sb.String(), -1)
 }
 
-func (b *TBot) updateReminder(usr int64, text string) error {
-	parts := strings.Split(text, ":")
+func (b *TBot) updateReminder(usr int64, txt string) error {
+	parts := strings.Split(txt, ":")
 	if len(parts) != 2 {
 		return errUnknownFormat
 	}
@@ -638,4 +695,39 @@ func (b *TBot) SendReminder(usr int64) {
 	}
 
 	b.SendMemosForToday(usr, list, "")
+}
+
+func (b *TBot) reorder(usr int64, replyID int, txt string, f func(int64, int) error) {
+	n, err := b.DB.GetLenMemos(usr)
+	if err != nil {
+		b.Logger.Errorw("failed getting number of memos", "err", err)
+		b.SendMessage(usr, txtErrorAccessingDatabase, replyID)
+		return
+	}
+
+	if n == 0 {
+		b.SendMessage(usr, txtNothingMove, -1)
+	}
+
+	val, err := validateInt(txt, 1, n)
+	if err != nil {
+		txt := fmt.Sprintf("I expected a number in the range of 1-%d", n)
+		b.SendMessage(usr, txt, replyID)
+		return
+	}
+
+	err = f(usr, val)
+	if err != nil {
+		b.Logger.Errorw("failed reordering memo", "err", err)
+		b.SendMessage(usr, txtFailedReorder, replyID)
+		return
+	}
+
+	active, done, err := b.DB.ListAllMemos(usr, true)
+	if err != nil {
+		b.Logger.Errorw("failed listing memos", "err", err)
+		b.SendMessage(usr, txtFailedFetchMemos, replyID)
+	}
+
+	b.SendMemosForToday(usr, active, done)
 }
