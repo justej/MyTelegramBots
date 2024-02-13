@@ -3,9 +3,9 @@ package db
 import "time"
 
 const (
-	memoStateActive uint = iota
-	memoStateDone
-	memoStateDeleted
+	MemoStateActive uint = iota
+	MemoStateDone
+	MemoStateDeleted
 )
 
 const (

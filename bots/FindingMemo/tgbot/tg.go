@@ -15,6 +15,18 @@ import (
 	"go.uber.org/zap"
 )
 
+const numShortCount = 5
+
+const (
+	cbqShowAll = "cbqShowAll"
+	cbqRetry   = "cbqRetry"
+)
+
+var (
+	keyboardShowAll = tg.NewInlineKeyboardMarkup(tg.NewInlineKeyboardRow(tg.NewInlineKeyboardButtonData("Show all", cbqShowAll)))
+	keyboardRetry   = tg.NewInlineKeyboardMarkup(tg.NewInlineKeyboardRow(tg.NewInlineKeyboardButtonData("Retry", cbqRetry)))
+)
+
 type Stage int
 
 const (
@@ -29,34 +41,54 @@ const (
 )
 
 const (
-	txtNoMemosAddNow     = "No memos to remind. Add ones now!"
-	txtYourMemosForToday = "Your memos for today:\n"
-	txtDoneMemosForToday = "Memos you've done recently:\n"
-	txtLineSep           = "\n\n"
-)
-
-const (
+	txtWelcomeMessage = "Hello, I'm an experienced memo keeper. I write down your memos and remind about them from time to time. By the way, you can tell me when to send you the reminder, so I won't wake you up when you decided to stay in bed ;) Send me your location so I'll know in which time zone is your time"
+	txtHelpMessage    = `As you may know, I keep your memos in order and periodically remind about them. You can send me a message or one of these commands:
+/list - to see short list of your memos
+/listall - to see full list of your memos
+/ins - to add a new memo at the beginning of the list
+/add - to add a new memo at the end of the list
+/del - to immediately delete the memo
+/done - to mark the memo as done, I'll hide done memos in approximately 24 hours
+/remindat - to let me know when to send you a reminder (send location to update time zone)
+/makefirst - to move a memo to the beginning of the list
+/makelast - to move a memo to the end of the list
+/settings - to list settings`
 	txtUnknownCommand              = "I don't known this command. Use /help to list commands I know"
-	txtErrorAccessingDatabase      = "Oops, I couldn't get your memos. Retry again. If it didn't help, try again later."
-	txtNothingToDelete             = "There's nothing to delete."
-	txtNothingToMarkDone           = "There's nothing to mark as done."
-	txtNothingMove                 = "There's no memos to move."
-	txtFailedDeleMemo              = "I failed to delete the memo. Please retry now or later."
-	txtFailedAddMemo               = "I failed to add the memo. Please retry now or later."
-	txtFailedInsertMemo            = "I failed to insert the memo. Please retry now or later."
-	txtFailedFetchMemos            = "I'm sorry, I couldn't fetch the list of memos."
+	txtDoNotUnderstandWhatHappened = "E-mm, I don't understood what have just happened"
+	txtWhatWasThatText             = "Looks like you wanted to insert a memo from a media. Saved the caption as a memo"
+	txtWhatWasThatCaption          = "Looks like you wanted to insert a memo. Saved the caption as a memo"
+	txtErrorAccessingDatabase      = "Oops, I couldn't get your memos. Retry again. If it didn't help, try again later"
+	txtNothingToDelete             = "There's nothing to delete"
+	txtNothingToMarkDone           = "There's nothing to mark as done"
+	txtNothingToMove               = "There's no memos to move"
+	txtFailedDeleMemo              = "I failed to delete the memo. Please retry now or later"
+	txtFailedAddMemo               = "I failed to add the memo. Please retry now or later"
+	txtFailedInsertMemo            = "I failed to insert the memo. Please retry now or later"
+	txtFailedFetchMemos            = "I'm sorry, I couldn't fetch the list of memos"
 	txtFailedStartingBot           = "Hey, I couldn't start. Let's try again!"
-	txtFailedSetReminder           = "Hm. I couldn't set a reminder."
+	txtFailedSetReminder           = "Hm. I couldn't set a reminder"
 	txtFailedReorder               = "Argh, I failed to move the memo!"
-	txtExpectedValidTimeFormat     = "I expect a valid time in the format HH:MM."
 	txtFailedUpdateReminder        = "Oh, no! I couldn't update the reminder! Try again!"
-	txtFailedFetchRemindParameters = "I'm sorry, I couldn't fetch the reminder parameters."
+	txtFailedFetchRemindParameters = "I'm sorry, I couldn't fetch the reminder parameters"
+	txtExpectedValidTimeFormat     = "I expect a valid time in the format HH:MM"
+	txtNoRemindTimeHere            = "I don't see remind time here"
+	txtWhatToDelete                = "Which memo do you want to delete?"
+	txtWhatToMarkDone              = "Which memo do you want to mark as done?"
+	txtWhatToMakeFirst             = "Which memo do you want to move to the beginning of the list?"
+	txtWhatToMakeLast              = "Which memo do you want to move to the end of the list?"
+	txtGotRemindTime               = "Gotcha, I'll remind at "
+	txtSendMeMemo                  = "Send me your memo"
+	txtEnterRemindTime             = "Enter hour and minute to send you a reminder in the format HH:MM. Send location to update timezone"
+	txtNoActiveMemos               = "Congrats, you don't have any active memos at the moment!\n"
+	txtYourActiveMemos             = "Your active memos:\n"
+	txtYourDoneMemos               = "\nMemos you've recently done:\n"
+	txtYourDeletedMemos            = "\nMemos you've recently deleted:\n"
 
-	txtAddedMemo    = "Added at the end of the list."
-	txtInsertedMemo = "Now it's your top priority memo."
-
-	txtSendMeMemo      = "Send me your memo."
-	txtEnterRemindTime = "Enter hour and minute to send you a reminder in the format HH:MM. Send location to update timezone."
+	fmtTimeZoneAccepted      = "Time zone identified as %s, it will be used in time offset and transition to daylight saving time if any"
+	fmtRemindTimeUpdated     = "I got it, I'll remind you about your memos at %s in %s time zone"
+	fmtYourSettings          = "Reminder time: %02d:%02d (%s).\n\nUse command '/%s' to change the time.\nYou can send location to update the time zone"
+	fmtNumberInRangeExpected = "I expected a number in the range of 1-%d. Please repeat the command and enter correct value"
+	fmtMemo                  = "[<code>%d</code>] %s\n"
 )
 
 var (
@@ -124,7 +156,6 @@ func NewTBot(tgtoken string, d *db.Database, l *zap.SugaredLogger) (*TBot, error
 		RetryDelay:    1 * time.Second,
 		states:        make(map[int64]*state),
 	}, nil
-
 }
 
 func (b *TBot) HandleMessage(msg *tg.Message) {
@@ -146,8 +177,8 @@ func (b *TBot) HandleMessage(msg *tg.Message) {
 				b.Logger.Errorw("couldn't update time zone", "err", err)
 			}
 
-			txt := fmt.Sprintf("Time zone identified as %s, it will be used in time offset and transition to daylight saving time if any.", tzName)
-			b.SendMessage(usr, txt, msg.MessageID)
+			txt := fmt.Sprintf(fmtTimeZoneAccepted, tzName)
+			b.SendMessage(usr, txt, msg.MessageID, nil)
 
 		case msg.Text != "":
 			if err := b.DB.InsertMemo(usr, msg.Text); err != nil {
@@ -155,7 +186,7 @@ func (b *TBot) HandleMessage(msg *tg.Message) {
 				return
 			}
 
-			b.SendMessage(usr, "Looks like you wanted to insert a memo. Added it.", msg.MessageID)
+			b.SendMessage(usr, txtWhatWasThatText, msg.MessageID, nil)
 
 		case msg.Caption != "":
 			if err := b.DB.InsertMemo(usr, msg.Caption); err != nil {
@@ -163,10 +194,10 @@ func (b *TBot) HandleMessage(msg *tg.Message) {
 				return
 			}
 
-			b.SendMessage(usr, "Looks like you wanted to insert a memo from a media. Saved the caption as a memo.", msg.MessageID)
+			b.SendMessage(usr, txtWhatWasThatCaption, msg.MessageID, nil)
 
 		default:
-			b.SendMessage(usr, "Unfortunately, I couldn't recognize the memo.", msg.MessageID)
+			b.SendMessage(usr, txtDoNotUnderstandWhatHappened, msg.MessageID, nil)
 		}
 
 	case stageAdd:
@@ -206,19 +237,19 @@ func (b *TBot) HandleMessage(msg *tg.Message) {
 		err := b.updateReminder(usr, remindAt)
 		if err != nil {
 			b.Logger.Errorw("failed updating reminder", "err", err)
-			b.SendMessage(usr, txtExpectedValidTimeFormat, msg.MessageID)
+			b.SendMessage(usr, txtExpectedValidTimeFormat, msg.MessageID, nil)
 			return
 		}
 
 		rp, err := b.DB.GetRemindParams(usr)
 		if err != nil {
 			b.Logger.Warn("failed on setting reminder:")
-			b.SendMessage(usr, txtErrorAccessingDatabase, -1)
+			b.SendMessage(usr, txtErrorAccessingDatabase, msg.MessageID, nil)
 			return
 		}
 
-		txt := fmt.Sprintf("I got it, I'll remind you about your memos at %s in %s time zone", remindAt, rp.TimeZone)
-		b.SendMessage(usr, txt, -1)
+		txt := fmt.Sprintf(fmtRemindTimeUpdated, remindAt, rp.TimeZone)
+		b.SendMessage(usr, txt, -1, nil)
 		userState.stage = stageIdle
 
 	case stageMakeFirst:
@@ -229,26 +260,273 @@ func (b *TBot) HandleMessage(msg *tg.Message) {
 		b.reorder(usr, msg.MessageID, msg.Text, b.DB.MakeLast)
 		userState.stage = stageIdle
 	}
-
 }
 
-func (b *TBot) SendMessage(usr int64, txt string, replyMessageID int) error {
-	m := tg.NewMessage(usr, txt)
-	if replyMessageID >= 0 {
-		m.ReplyToMessageID = replyMessageID
-	}
-	m.ParseMode = tg.ModeHTML
-	m.DisableWebPagePreview = true
+func (b *TBot) HandleCommand(msg *tg.Message) {
+	usr := msg.From.ID
 
-	var err error
-	bot.RobustExecute(b.RetryAttempts, b.RetryDelay, func() bool {
-		_, err = b.Bot.Send(m)
-		return err == nil
-	})
-	if err != nil {
-		b.Logger.Errorw("failed sending message", "err", err)
+	userState := b.states[usr]
+	if userState == nil {
+		userState = &state{stageIdle}
+		b.states[usr] = userState
 	}
-	return err
+
+	if userState.stage != stageIdle {
+		// Commands interrupt any ongoing command
+		userState.stage = stageIdle
+	}
+
+	cmd := msg.Command()
+	switch cmd {
+	case cmdStart.Name:
+		err := b.DB.CreateUser(usr)
+		if err != nil {
+			b.Logger.Errorw("failed creating user", "err", err)
+			b.SendMessage(usr, txtFailedStartingBot, msg.MessageID, nil)
+			return
+		}
+
+		err = b.ReminderManager.Set(usr)
+		if err != nil {
+			b.Logger.Warn("failed setting reminder")
+			b.SendMessage(usr, txtFailedSetReminder, msg.MessageID, nil)
+			return
+		}
+
+		b.Logger.Info("user has started the bot")
+
+		b.SendMessage(usr, txtWelcomeMessage, -1, nil)
+
+		memos, err := b.DB.GetAllMemos(usr, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.SendMessage(usr, txtFailedFetchMemos, msg.MessageID, nil)
+			return
+		}
+
+		b.sendMemosForToday(usr, memos, true)
+
+	case cmdHelp.Name:
+		b.SendMessage(usr, txtHelpMessage, -1, nil)
+
+	case cmdList.Name:
+		memos, err := b.DB.GetAllMemos(usr, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.SendMessage(usr, txtFailedFetchMemos, msg.MessageID, nil)
+			return
+		}
+
+		b.sendMemosForToday(usr, memos, false)
+
+	case cmdListAll.Name:
+		memos, err := b.DB.GetAllMemos(usr, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.SendMessage(usr, txtFailedFetchMemos, msg.MessageID, nil)
+			return
+		}
+
+		b.sendMemosForToday(usr, memos, true)
+
+	case cmdAdd.Name:
+		if len(msg.Text) > cmdAdd.Len {
+			txt := strings.TrimSpace(msg.Text[cmdAdd.Len:])
+			b.addMemo(usr, txt)
+			return
+		}
+
+		err := b.SendMessage(usr, txtSendMeMemo, -1, nil)
+		if err != nil {
+			return
+		}
+
+		userState.stage = stageAdd
+
+	case cmdIns.Name:
+		if len(msg.Text) > cmdIns.Len {
+			txt := strings.TrimSpace(msg.Text[cmdIns.Len:])
+			b.insertMemo(usr, txt)
+			return
+		}
+
+		if b.SendMessage(usr, txtSendMeMemo, -1, nil) != nil {
+			return
+		}
+
+		userState.stage = stageIns
+
+	case cmdDel.Name:
+		if len(msg.Text) > cmdDel.Len {
+			txt := strings.TrimSpace(msg.Text[cmdDel.Len:])
+			b.delMemo(usr, msg.MessageID, txt)
+			return
+		}
+
+		memos, err := b.DB.GetAllMemos(usr, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.SendMessage(usr, txtFailedFetchMemos, msg.MessageID, nil)
+			return
+		}
+
+		if len(memos) == 0 {
+			b.SendMessage(usr, txtNothingToDelete, -1, nil)
+			return
+		}
+
+		b.sendMemosForToday(usr, memos, true)
+		if b.SendMessage(usr, txtWhatToDelete, msg.MessageID, nil) != nil {
+			return
+		}
+
+		userState.stage = stageDel
+
+	case cmdDone.Name:
+		if len(msg.Text) > cmdDone.Len {
+			txt := strings.TrimSpace(msg.Text[cmdDel.Len:])
+			b.markAsDone(usr, msg.MessageID, txt)
+			return
+		}
+
+		memos, err := b.DB.GetAllMemos(usr, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.SendMessage(usr, txtFailedFetchMemos, msg.MessageID, nil)
+			return
+		}
+
+		if len(memos) == 0 {
+			b.SendMessage(usr, txtNothingToMarkDone, -1, nil)
+			return
+		}
+
+		b.sendMemosForToday(usr, memos, true)
+		if b.SendMessage(usr, txtWhatToMarkDone, -1, nil) != nil {
+			return
+		}
+
+		userState.stage = stageDone
+
+	case cmdMakeFirst.Name:
+		if len(msg.Text) > cmdMakeFirst.Len {
+			txt := strings.TrimSpace(msg.Text[cmdMakeFirst.Len:])
+			b.reorder(usr, msg.MessageID, txt, b.DB.MakeFirst)
+			return
+		}
+
+		memos, err := b.DB.GetAllMemos(usr, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.SendMessage(usr, txtFailedFetchMemos, msg.MessageID, nil)
+			return
+		}
+
+		if len(memos) == 0 {
+			b.SendMessage(usr, txtNothingToMove, -1, nil)
+			return
+		}
+
+		b.sendMemosForToday(usr, memos, true)
+		if b.SendMessage(usr, txtWhatToMakeFirst, -1, nil) != nil {
+			return
+		}
+
+		userState.stage = stageMakeFirst
+
+	case cmdMakeLast.Name:
+		if len(msg.Text) > cmdMakeLast.Len {
+			txt := strings.TrimSpace(msg.Text[cmdMakeLast.Len:])
+			b.reorder(usr, msg.MessageID, txt, b.DB.MakeLast)
+			return
+		}
+
+		memos, err := b.DB.GetAllMemos(usr, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.SendMessage(usr, txtFailedFetchMemos, msg.MessageID, nil)
+			return
+		}
+
+		if len(memos) == 0 {
+			b.SendMessage(usr, txtNothingToMove, -1, nil)
+			return
+		}
+
+		b.sendMemosForToday(usr, memos, true)
+		if b.SendMessage(usr, txtWhatToMakeLast, -1, nil) != nil {
+			return
+		}
+
+		userState.stage = stageMakeLast
+
+	case cmdRemindAt.Name:
+		if len(msg.Text) > cmdRemindAt.Len {
+			remindTimeTxt := strings.TrimSpace(msg.Text[cmdRemindAt.Len:])
+			if b.updateReminder(usr, remindTimeTxt) != nil {
+				b.Logger.Error("failed updating reminder")
+				b.SendMessage(usr, txtFailedUpdateReminder, msg.MessageID, nil)
+				return
+			}
+
+			b.SendMessage(usr, txtGotRemindTime+remindTimeTxt, -1, nil)
+			return
+		}
+
+		if b.SendMessage(usr, txtEnterRemindTime, -1, nil) != nil {
+			return
+		}
+
+		userState.stage = stageRemindAt
+
+	case cmdSettings.Name:
+		rp, err := b.DB.GetRemindParams(usr)
+		if err != nil {
+			b.Logger.Warn("failed getting user config")
+			b.SendMessage(usr, txtFailedFetchRemindParameters, msg.MessageID, nil)
+			return
+		}
+
+		var txt string
+		if rp == nil {
+			b.Logger.Errorw("no remind params found")
+			txt = txtNoRemindTimeHere
+		} else {
+			h := rp.RemindAt / 60
+			m := rp.RemindAt - h*60
+			txt = fmt.Sprintf(fmtYourSettings, h, m, cmdRemindAt.Name, rp.TimeZone)
+		}
+
+		b.SendMessage(usr, txt, -1, nil)
+
+	default:
+		b.SendMessage(usr, txtUnknownCommand, msg.MessageID, nil)
+	}
+}
+
+func (b *TBot) HandleCallback(cbq *tg.CallbackQuery) {
+	usr := cbq.From.ID
+
+	userState := b.states[usr]
+	if userState == nil {
+		userState = &state{stageIdle}
+		b.states[usr] = userState
+	}
+
+	switch cbq.Data {
+	case cbqShowAll, cbqRetry:
+		memos, err := b.DB.GetAllMemos(usr, true)
+		if err != nil {
+			b.Logger.Errorw("failed listing memos", "err", err)
+			b.ReplaceMessage(usr, txtFailedFetchMemos, cbq.Message.MessageID, &keyboardRetry)
+			return
+		}
+
+		active, done, deleted := groupByState(memos)
+		var sb strings.Builder
+		formatAllMemos(&sb, active, done, deleted)
+		b.ReplaceMessage(usr, sb.String(), cbq.Message.MessageID, nil)
+	}
 }
 
 func (b *TBot) updateTimeZone(usr int64, loc *tg.Location) (string, error) {
@@ -278,386 +556,112 @@ func (b *TBot) updateTimeZone(usr int64, loc *tg.Location) (string, error) {
 }
 
 func (b *TBot) delMemo(usr int64, replyID int, txt string) {
-	n, err := b.DB.GetLenMemos(usr)
+	n, err := b.DB.GetActiveMemoCount(usr)
 	if err != nil {
 		b.Logger.Errorw("failed getting number of memos", "err", err)
-		b.SendMessage(usr, txtErrorAccessingDatabase, -1)
+		b.SendMessage(usr, txtErrorAccessingDatabase, -1, nil)
 		return
 	}
 
 	if n == 0 {
-		b.SendMessage(usr, txtNothingToDelete, -1)
+		b.SendMessage(usr, txtNothingToDelete, -1, nil)
 		return
 	}
 
 	val, err := validateInt(txt, 1, n)
 	if err != nil {
-		txt := fmt.Sprintf("I expected a number in the range of 1-%d", n)
-		b.SendMessage(usr, txt, replyID)
+		txt := fmt.Sprintf(fmtNumberInRangeExpected, n)
+		b.SendMessage(usr, txt, replyID, nil)
 		return
 	}
 
-	err = b.DB.Delete(usr, val)
+	err = b.DB.DeleteMemo(usr, val)
 	if err != nil {
 		b.Logger.Errorw("failed deleted memo", "err", err)
-		b.SendMessage(usr, txtFailedDeleMemo, replyID)
+		b.SendMessage(usr, txtFailedDeleMemo, replyID, nil)
 		return
 	}
 
-	active, done, err := b.DB.ListAllMemos(usr, true)
+	memos, err := b.DB.GetAllMemos(usr, true)
 	if err != nil {
-		b.Logger.Errorw("failed deleted memo", "err", err)
-		b.SendMessage(usr, txtFailedFetchMemos, -1)
+		b.Logger.Errorw("failed listing memos", "err", err)
+		b.SendMessage(usr, txtFailedFetchMemos, -1, nil)
 		return
 	}
 
-	b.SendMemosForToday(usr, active, done)
+	b.sendMemosForToday(usr, memos, false)
 }
 
 func (b *TBot) markAsDone(usr int64, replyID int, txt string) {
-	n, err := b.DB.GetLenMemos(usr)
+	n, err := b.DB.GetActiveMemoCount(usr)
 	if err != nil {
 		b.Logger.Errorw("failed getting number of memos", "err", err)
-		b.SendMessage(usr, txtErrorAccessingDatabase, replyID)
+		b.SendMessage(usr, txtErrorAccessingDatabase, replyID, nil)
 		return
 	}
 
 	if n == 0 {
-		b.SendMessage(usr, txtNothingToMarkDone, -1)
+		b.SendMessage(usr, txtNothingToMarkDone, -1, nil)
 	}
 
 	val, err := validateInt(txt, 1, n)
 	if err != nil {
-		txt := fmt.Sprintf("I expected a number in the range of 1-%d", n)
-		b.SendMessage(usr, txt, replyID)
+		txt := fmt.Sprintf(fmtNumberInRangeExpected, n)
+		b.SendMessage(usr, txt, replyID, nil)
 		return
 	}
 
-	err = b.DB.Done(usr, val)
+	err = b.DB.MarkAsDone(usr, val)
 	if err != nil {
 		b.Logger.Errorw("failed marking memo as done", "err", err)
-		b.SendMessage(usr, txtErrorAccessingDatabase, replyID)
+		b.SendMessage(usr, txtErrorAccessingDatabase, replyID, nil)
 		return
 	}
 
-	active, done, err := b.DB.ListAllMemos(usr, true)
+	memos, err := b.DB.GetAllMemos(usr, true)
 	if err != nil {
 		b.Logger.Errorw("failed listing memos", "err", err)
-		b.SendMessage(usr, txtFailedFetchMemos, replyID)
+		b.SendMessage(usr, txtFailedFetchMemos, -1, nil)
+		return
 	}
 
-	b.SendMemosForToday(usr, active, done)
-}
-
-func validateInt(txt string, min int, max int) (int, error) {
-	val, err := strconv.Atoi(txt)
-	if err != nil {
-		return 0, err
-	}
-
-	if val < min || val > max {
-		return 0, errOutOfRange
-	}
-	return val, nil
-}
-
-func (b *TBot) HandleCommand(msg *tg.Message) {
-	usr := msg.From.ID
-
-	userState := b.states[usr]
-	if userState == nil {
-		userState = &state{stageIdle}
-		b.states[usr] = userState
-	}
-
-	if userState.stage != stageIdle {
-		// Commands interrupt any ongoing command
-		userState.stage = stageIdle
-	}
-
-	cmd := msg.Command()
-	switch cmd {
-	case cmdStart.Name:
-		err := b.DB.CreateUser(usr)
-		if err != nil {
-			b.Logger.Errorw("failed creating user", "err", err)
-			b.SendMessage(usr, txtFailedStartingBot, -1)
-			return
-		}
-
-		err = b.ReminderManager.Set(usr)
-		if err != nil {
-			b.Logger.Warn("failed setting reminder")
-			b.SendMessage(usr, txtFailedSetReminder, -1)
-			return
-		}
-
-		b.Logger.Info("user has started the bot")
-
-		txt := "Hello, I'm an experienced memo keeper. I write down your memos and remind about them from time to time. By the way, you can tell me when to send you the reminder, so I won't wake you up when you decided to stay in bed ;) Send me your location so I'll know in which time zone is your time"
-		b.SendMessage(usr, txt, -1)
-
-		list, err := b.DB.ListFullMemos(usr, false)
-		if err != nil {
-			b.Logger.Errorw("failed listing memos")
-			b.SendMessage(usr, txtFailedFetchMemos, -1)
-			return
-		}
-
-		b.SendMemosForToday(usr, list, "")
-
-	case cmdHelp.Name:
-		txt := `As you may know, I keep your memos in order and periodically remind about them. You can send me a message or one of these commands:
-/list - to see short list of your memos
-/listall - to see full list of your memos
-/ins - to add a new memo at the beginning of the list
-/add - to add a new memo at the end of the list
-/del - to immediately delete the memo
-/done - to mark the memo as done, I'll hide done memos in approximately 24 hours
-/remindat - to let me know when to send you a reminder (send location to update time zone)
-/makefirst - to move a memo to the beginning of the list
-/makelast - to move a memo to the end of the list
-/settings - to list settings`
-		b.SendMessage(usr, txt, -1)
-
-	case cmdList.Name:
-		list, err := b.DB.ListFirstMemos(usr, 5, true)
-		if err != nil {
-			b.Logger.Errorw("failed listing memos", "err", err)
-			b.SendMessage(usr, txtFailedFetchMemos, -1)
-			return
-		}
-
-		b.SendMemosForToday(usr, list, "")
-
-	case cmdListAll.Name:
-		active, done, err := b.DB.ListAllMemos(usr, false)
-		if err != nil {
-			b.Logger.Errorw("failed listing memos", "err", err)
-			b.SendMessage(usr, txtFailedFetchMemos, -1)
-			return
-		}
-
-		b.SendMemosForToday(usr, active, done)
-
-	case cmdAdd.Name:
-		if len(msg.Text) > cmdAdd.Len {
-			txt := strings.TrimSpace(msg.Text[cmdAdd.Len:])
-			b.addMemo(usr, txt)
-			return
-		}
-
-		err := b.SendMessage(usr, txtSendMeMemo, -1)
-		if err != nil {
-			return
-		}
-
-		userState.stage = stageAdd
-
-	case cmdIns.Name:
-		if len(msg.Text) > cmdIns.Len {
-			txt := strings.TrimSpace(msg.Text[cmdIns.Len:])
-			b.insertMemo(usr, txt)
-			return
-		}
-
-		err := b.SendMessage(usr, txtSendMeMemo, -1)
-		if err != nil {
-			return
-		}
-
-		userState.stage = stageIns
-
-	case cmdDel.Name:
-		if len(msg.Text) > cmdDel.Len {
-			txt := strings.TrimSpace(msg.Text[cmdDel.Len:])
-			b.delMemo(usr, msg.MessageID, txt)
-			return
-		}
-
-		list, err := b.DB.ListFullMemos(usr, true)
-		if err != nil {
-			b.Logger.Errorw("failed listing memos")
-			b.SendMessage(usr, txtFailedFetchMemos, -1)
-			return
-		}
-		list += "\n\nWhich memo do you want to delete?"
-
-		err = b.SendMemosForToday(usr, list, "")
-		if err != nil {
-			return
-		}
-
-		userState.stage = stageDel
-
-	case cmdDone.Name:
-		if len(msg.Text) > cmdDone.Len {
-			txt := strings.TrimSpace(msg.Text[cmdDel.Len:])
-			b.markAsDone(usr, msg.MessageID, txt)
-			return
-		}
-
-		list, err := b.DB.ListFullMemos(usr, false)
-		if err != nil {
-			b.Logger.Errorw("failed listing memos", "err", err)
-			b.SendMessage(usr, txtFailedFetchMemos, -1)
-			return
-		}
-		list += "\n\nWhich memo do you want to mark as done?"
-
-		err = b.SendMemosForToday(usr, list, "")
-		if err != nil {
-			return
-		}
-
-		userState.stage = stageDone
-
-	case cmdMakeFirst.Name:
-		if len(msg.Text) > cmdMakeFirst.Len {
-			txt := strings.TrimSpace(msg.Text[cmdMakeFirst.Len:])
-			b.reorder(usr, msg.MessageID, txt, b.DB.MakeFirst)
-			return
-		}
-
-		list, err := b.DB.ListFullMemos(usr, false)
-		if err != nil {
-			b.Logger.Errorw("failed listing memos", "err", err)
-			b.SendMessage(usr, txtFailedFetchMemos, -1)
-			return
-		}
-		list += "\n\nWhich memo do you want to move to the beginning of the list?"
-
-		err = b.SendMemosForToday(usr, list, "")
-		if err != nil {
-			return
-		}
-
-		userState.stage = stageMakeFirst
-
-	case cmdMakeLast.Name:
-		if len(msg.Text) > cmdMakeLast.Len {
-			txt := strings.TrimSpace(msg.Text[cmdMakeLast.Len:])
-			b.reorder(usr, msg.MessageID, txt, b.DB.MakeLast)
-			return
-		}
-
-		list, err := b.DB.ListFullMemos(usr, false)
-		if err != nil {
-			b.Logger.Errorw("failed listing memos", "err", err)
-			b.SendMessage(usr, txtFailedFetchMemos, -1)
-			return
-		}
-		list += "\n\nWhich memo do you want to move to the end of the list?"
-
-		err = b.SendMemosForToday(usr, list, "")
-		if err != nil {
-			return
-		}
-
-		userState.stage = stageMakeLast
-
-	case cmdRemindAt.Name:
-		if len(msg.Text) > cmdRemindAt.Len {
-			txt := msg.Text[cmdRemindAt.Len:]
-			if b.updateReminder(usr, txt) != nil {
-				b.Logger.Error("failed updating reminder")
-				b.SendMessage(usr, txtFailedUpdateReminder, -1)
-				return
-			}
-
-			b.SendMessage(usr, "Gotcha, I'll remind at "+txt, -1)
-			return
-		}
-
-		err := b.SendMessage(usr, txtEnterRemindTime, -1)
-		if err != nil {
-			return
-		}
-
-		userState.stage = stageRemindAt
-
-	case cmdSettings.Name:
-		rp, err := b.DB.GetRemindParams(usr)
-		if err != nil {
-			b.Logger.Warn("failed getting user config")
-			b.SendMessage(usr, txtFailedFetchRemindParameters, -1)
-			return
-		}
-
-		var txt string
-		if rp == nil {
-			b.Logger.Errorw("no remind params found")
-			txt = "I don't see remind time"
-		} else {
-			h := rp.RemindAt / 60
-			m := rp.RemindAt - h*60
-			txt = fmt.Sprintf("Reminder time: %02d:%02d (%s).\n\nUse command '/%s' to change the time.\nYou can send location to update the time zone.", h, m, cmdRemindAt.Name, rp.TimeZone)
-		}
-		b.SendMessage(usr, txt, -1)
-
-	default:
-		b.SendMessage(usr, txtUnknownCommand, msg.MessageID)
-	}
-
-	b.Logger.Infof("Command /%s was successfully handled", cmd)
+	b.sendMemosForToday(usr, memos, false)
 }
 
 func (b *TBot) addMemo(usr int64, txt string) {
 	err := b.DB.AddMemo(usr, txt)
 	if err != nil {
 		b.Logger.Errorw("failed adding memo", "err", err)
-		b.SendMessage(usr, txtFailedAddMemo, -1)
+		b.SendMessage(usr, txtFailedAddMemo, -1, nil)
 		return
 	}
 
-	list, err := b.DB.ListFirstMemos(usr, 5, true)
+	memos, err := b.DB.GetAllMemos(usr, true)
 	if err != nil {
 		b.Logger.Errorw("failed listing memos", "err", err)
-		b.SendMessage(usr, txtFailedFetchMemos, -1)
+		b.SendMessage(usr, txtFailedFetchMemos, -1, nil)
 		return
 	}
 
-	b.SendMemosForToday(usr, list, "")
+	b.sendMemosForToday(usr, memos, false)
 }
 
 func (b *TBot) insertMemo(usr int64, txt string) {
 	err := b.DB.InsertMemo(usr, txt)
 	if err != nil {
 		b.Logger.Errorw("failed inserting memo", "err", err)
-		b.SendMessage(usr, txtFailedInsertMemo, -1)
+		b.SendMessage(usr, txtFailedInsertMemo, -1, nil)
 		return
 	}
 
-	list, err := b.DB.ListFirstMemos(usr, 5, true)
+	memos, err := b.DB.GetAllMemos(usr, true)
 	if err != nil {
 		b.Logger.Errorw("failed listing memos", "err", err)
-		b.SendMessage(usr, txtFailedFetchMemos, -1)
+		b.SendMessage(usr, txtFailedFetchMemos, -1, nil)
 		return
 	}
 
-	b.SendMemosForToday(usr, list, "")
-}
-
-func (b *TBot) SendMemosForToday(usr int64, active, done string) error {
-	var sb strings.Builder
-
-	n := len(txtNoMemosAddNow) + len(txtYourMemosForToday) + len(txtLineSep) + len(active) + len(done)
-	sb.Grow(n)
-
-	if len(active) == 0 {
-		sb.WriteString(txtNoMemosAddNow)
-	} else {
-		sb.WriteString(txtYourMemosForToday)
-		sb.WriteString(active)
-	}
-
-	if len(done) != 0 {
-		sb.WriteString(txtLineSep)
-		sb.WriteString(txtDoneMemosForToday)
-		sb.WriteString(done)
-	}
-
-	return b.SendMessage(usr, sb.String(), -1)
+	b.sendMemosForToday(usr, memos, false)
 }
 
 func (b *TBot) updateReminder(usr int64, txt string) error {
@@ -687,47 +691,175 @@ func (b *TBot) updateReminder(usr int64, txt string) error {
 
 // SendReminder is a callback that's invoked by reminder
 func (b *TBot) SendReminder(usr int64) {
-	list, err := b.DB.ListFirstMemos(usr, 5, true)
+	memos, err := b.DB.GetAllMemos(usr, true)
 	if err != nil {
-		b.Logger.Errorw("failed fetching first memos", "err", err)
-		b.SendMessage(usr, txtFailedFetchMemos, -1)
+		b.Logger.Errorw("failed listing memos", "err", err)
+		b.SendMessage(usr, txtFailedFetchMemos, -1, nil)
 		return
 	}
 
-	b.SendMemosForToday(usr, list, "")
+	b.sendMemosForToday(usr, memos, false)
 }
 
 func (b *TBot) reorder(usr int64, replyID int, txt string, f func(int64, int) error) {
-	n, err := b.DB.GetLenMemos(usr)
+	n, err := b.DB.GetActiveMemoCount(usr)
 	if err != nil {
 		b.Logger.Errorw("failed getting number of memos", "err", err)
-		b.SendMessage(usr, txtErrorAccessingDatabase, replyID)
+		b.SendMessage(usr, txtErrorAccessingDatabase, replyID, nil)
 		return
 	}
 
 	if n == 0 {
-		b.SendMessage(usr, txtNothingMove, -1)
+		b.SendMessage(usr, txtNothingToMove, -1, nil)
 	}
 
 	val, err := validateInt(txt, 1, n)
 	if err != nil {
-		txt := fmt.Sprintf("I expected a number in the range of 1-%d", n)
-		b.SendMessage(usr, txt, replyID)
+		txt := fmt.Sprintf(fmtNumberInRangeExpected, n)
+		b.SendMessage(usr, txt, replyID, nil)
 		return
 	}
 
 	err = f(usr, val)
 	if err != nil {
 		b.Logger.Errorw("failed reordering memo", "err", err)
-		b.SendMessage(usr, txtFailedReorder, replyID)
+		b.SendMessage(usr, txtFailedReorder, replyID, nil)
 		return
 	}
 
-	active, done, err := b.DB.ListAllMemos(usr, true)
+	memos, err := b.DB.GetAllMemos(usr, true)
 	if err != nil {
 		b.Logger.Errorw("failed listing memos", "err", err)
-		b.SendMessage(usr, txtFailedFetchMemos, replyID)
+		b.SendMessage(usr, txtFailedFetchMemos, -1, nil)
+		return
 	}
 
-	b.SendMemosForToday(usr, active, done)
+	b.sendMemosForToday(usr, memos, false)
+}
+
+func (b *TBot) SendMessage(usr int64, txt string, replyTo int, kbMarkup *tg.InlineKeyboardMarkup) error {
+	m := tg.NewMessage(usr, txt)
+	if replyTo >= 0 {
+		m.ReplyToMessageID = replyTo
+	}
+	m.ParseMode = tg.ModeHTML
+	m.DisableWebPagePreview = true
+	if kbMarkup != nil {
+		m.BaseChat.ReplyMarkup = kbMarkup
+	}
+
+	var err error
+	bot.RobustExecute(b.RetryAttempts, b.RetryDelay, func() bool {
+		_, err = b.Bot.Request(m)
+		return err == nil
+	})
+	if err != nil {
+		b.Logger.Errorw("failed sending message", "err", err)
+	}
+	return err
+}
+
+func (b TBot) ReplaceMessage(usr int64, txt string, msgID int, kbMarkup *tg.InlineKeyboardMarkup) bool {
+	updText := tg.EditMessageTextConfig{
+		BaseEdit: tg.BaseEdit{
+			ChatID:      usr,
+			MessageID:   msgID,
+			ReplyMarkup: kbMarkup,
+		},
+		DisableWebPagePreview: true,
+		ParseMode:             tg.ModeHTML,
+		Text:                  txt,
+	}
+
+	var err error
+	ok := bot.RobustExecute(b.RetryAttempts, b.RetryDelay, func() bool {
+		_, err := b.Bot.Request(updText)
+		if err != nil && strings.HasPrefix(err.Error(), "Bad Request: message is not modified") {
+			err = nil
+		}
+		return err == nil
+	})
+	if !ok {
+		b.Logger.Errorw("failed updating message text", "err", err)
+	}
+
+	return ok
+}
+
+func (b *TBot) sendMemosForToday(usr int64, memos []db.Memo, showAll bool) error {
+	activeMemos, doneMemos, deletedMemos := groupByState(memos)
+
+	var sb strings.Builder
+	var kb *tg.InlineKeyboardMarkup
+	if showAll {
+		formatAllMemos(&sb, activeMemos, doneMemos, deletedMemos)
+	} else {
+		n := numShortCount
+		if len(activeMemos) < numShortCount {
+			n = len(activeMemos)
+		}
+		for i, txt := range activeMemos[:n] {
+			sb.WriteString(fmt.Sprintf(fmtMemo, i+1, txt))
+		}
+		kb = &keyboardShowAll
+	}
+
+	return b.SendMessage(usr, sb.String(), -1, kb)
+}
+
+func formatAllMemos(sb *strings.Builder, activeMemos []string, doneMemos []string, deletedMemos []string) {
+	sb.Grow(100 * (len(activeMemos) + len(doneMemos) + len(deletedMemos)))
+
+	if len(activeMemos) == 0 {
+		sb.WriteString(txtNoActiveMemos)
+	} else {
+		sb.WriteString(txtYourActiveMemos)
+	}
+
+	for i, txt := range activeMemos {
+		sb.WriteString(fmt.Sprintf(fmtMemo, i+1, txt))
+	}
+
+	if len(doneMemos) > 0 {
+		sb.WriteString(txtYourDoneMemos)
+		for i, txt := range doneMemos {
+			sb.WriteString(fmt.Sprintf(fmtMemo, i+1, txt))
+		}
+	}
+
+	if len(deletedMemos) > 0 {
+		sb.WriteString(txtYourDeletedMemos)
+		for i, txt := range deletedMemos {
+			sb.WriteString(fmt.Sprintf(fmtMemo, i+1, txt))
+		}
+	}
+}
+
+func groupByState(memos []db.Memo) ([]string, []string, []string) {
+	var activeMemos []string
+	var doneMemos []string
+	var deletedMemos []string
+	for _, m := range memos {
+		switch m.State {
+		case db.MemoStateActive:
+			activeMemos = append(activeMemos, m.Text)
+		case db.MemoStateDone:
+			doneMemos = append(doneMemos, m.Text)
+		case db.MemoStateDeleted:
+			deletedMemos = append(deletedMemos, m.Text)
+		}
+	}
+	return activeMemos, doneMemos, deletedMemos
+}
+
+func validateInt(txt string, min int, max int) (int, error) {
+	val, err := strconv.Atoi(txt)
+	if err != nil {
+		return 0, err
+	}
+
+	if val < min || val > max {
+		return 0, errOutOfRange
+	}
+	return val, nil
 }

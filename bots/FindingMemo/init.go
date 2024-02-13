@@ -96,12 +96,16 @@ func (fm *FindingMemo) Run() {
 	uCfg.Timeout = 60
 
 	for u := range fm.TBot.Bot.GetUpdatesChan(uCfg) {
-		if u.Message != nil {
+		switch {
+		case u.Message != nil:
 			if u.Message.IsCommand() {
 				go fm.TBot.HandleCommand(u.Message)
 			} else {
 				go fm.TBot.HandleMessage(u.Message)
 			}
+
+		case u.CallbackQuery != nil:
+			go fm.TBot.HandleCallback(u.CallbackQuery)
 		}
 	}
 }
