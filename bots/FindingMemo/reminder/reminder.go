@@ -20,6 +20,7 @@ type Manager struct {
 	db            *db.Database
 	logger        *zap.SugaredLogger
 	reminderQueue *reminderQueue
+	sendReminder  func(int64)
 }
 
 type Reminder struct {
@@ -34,6 +35,7 @@ func NewManager(d *db.Database, sr func(int64), l *zap.SugaredLogger) *Manager {
 		db:            d,
 		logger:        l,
 		reminderQueue: NewReminderQueue(),
+		sendReminder:  sr,
 	}
 }
 
@@ -84,8 +86,10 @@ func (m *Manager) Set(usr int64) error {
 	}
 
 	reminder := &Reminder{
-		usr: usr,
-		at:  time.Date(now.Year(), now.Month(), now.Day(), hh, mm, 0, 0, loc).UTC(),
+		usr:          usr,
+		at:           time.Date(now.Year(), now.Month(), now.Day(), hh, mm, 0, 0, loc).UTC(),
+		logger:       m.logger,
+		sendReminder: m.sendReminder,
 	}
 
 	heap.Push(m.reminderQueue, reminder)
