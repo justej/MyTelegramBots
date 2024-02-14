@@ -16,6 +16,7 @@ import (
 )
 
 const numShortCount = 5
+const numAssumedAvgMemo = 100
 
 const (
 	cbqShowAll = "cbqShowAll"
@@ -70,7 +71,7 @@ const (
 	txtFailedReorder               = "Argh, I failed to move the memo!"
 	txtFailedUpdateReminder        = "Oh, no! I couldn't update the reminder! Try again!"
 	txtFailedFetchRemindParameters = "I'm sorry, I couldn't fetch the reminder parameters"
-	txtExpectedValidTimeFormat     = "I expect a valid time in the format HH:MM"
+	txtExpectedValidTimeFormat     = "I expect a valid time in the format HH:MM. Please repeat the command and enter correct value"
 	txtNoRemindTimeHere            = "I don't see remind time here"
 	txtWhatToDelete                = "Which memo do you want to delete?"
 	txtWhatToMarkDone              = "Which memo do you want to mark as done?"
@@ -794,21 +795,17 @@ func (b *TBot) sendMemosForToday(usr int64, memos []db.Memo, showAll bool) error
 	if showAll {
 		formatAllMemos(&sb, activeMemos, doneMemos, deletedMemos)
 	} else {
-		n := numShortCount
-		if len(activeMemos) < numShortCount {
-			n = len(activeMemos)
+		formatFirstMemos(&sb, activeMemos)
+		if len(activeMemos) > numShortCount || len(doneMemos) > 0 || len(deletedMemos) > 0 {
+			kb = &keyboardShowAll
 		}
-		for i, txt := range activeMemos[:n] {
-			sb.WriteString(fmt.Sprintf(fmtMemo, i+1, txt))
-		}
-		kb = &keyboardShowAll
 	}
 
 	return b.SendMessage(usr, sb.String(), -1, kb)
 }
 
 func formatAllMemos(sb *strings.Builder, activeMemos []string, doneMemos []string, deletedMemos []string) {
-	sb.Grow(100 * (len(activeMemos) + len(doneMemos) + len(deletedMemos)))
+	sb.Grow(numAssumedAvgMemo * (len(activeMemos) + len(doneMemos) + len(deletedMemos)))
 
 	if len(activeMemos) == 0 {
 		sb.WriteString(txtNoActiveMemos)
@@ -832,6 +829,23 @@ func formatAllMemos(sb *strings.Builder, activeMemos []string, doneMemos []strin
 		for i, txt := range deletedMemos {
 			sb.WriteString(fmt.Sprintf(fmtMemo, i+1, txt))
 		}
+	}
+}
+
+func formatFirstMemos(sb *strings.Builder, activeMemos []string) {
+	n := numShortCount
+	if len(activeMemos) < numShortCount {
+		n = len(activeMemos)
+	}
+
+	if len(activeMemos) == 0 {
+		sb.WriteString(txtNoActiveMemos)
+	} else {
+		sb.WriteString(txtYourActiveMemos)
+	}
+
+	for i, txt := range activeMemos[:n] {
+		sb.WriteString(fmt.Sprintf(fmtMemo, i+1, txt))
 	}
 }
 
