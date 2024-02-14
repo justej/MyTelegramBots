@@ -495,7 +495,7 @@ func (b *TBot) HandleCommand(msg *tg.Message) {
 		} else {
 			h := rp.RemindAt / 60
 			m := rp.RemindAt - h*60
-			txt = fmt.Sprintf(fmtYourSettings, h, m, cmdRemindAt.Name, rp.TimeZone)
+			txt = fmt.Sprintf(fmtYourSettings, h, m, rp.TimeZone, cmdRemindAt.Name)
 		}
 
 		b.SendMessage(usr, txt, -1, nil)
