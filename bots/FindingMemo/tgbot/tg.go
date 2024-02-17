@@ -54,9 +54,9 @@ const (
 /makefirst - to move a memo to the beginning of the list
 /makelast - to move a memo to the end of the list
 /settings - to list settings`
-	txtUnknownCommand              = "I don't known this command. Use /help to list commands I know"
-	txtDoNotUnderstandWhatHappened = "E-mm, I don't understood what have just happened"
-	txtWhatWasThatText             = "Looks like you wanted to insert a memo from a media. Saved the caption as a memo"
+	txtUnknownCommand              = "I don't known this command. Use /help to list the commands I know"
+	txtDoNotUnderstandWhatHappened = "E-mm, I didn't understand what have just happened"
+	txtWhatWasThatText             = "Looks like you wanted to insert a memo from a media. Saved the message text as a memo"
 	txtWhatWasThatCaption          = "Looks like you wanted to insert a memo. Saved the caption as a memo"
 	txtErrorAccessingDatabase      = "Oops, I couldn't get your memos. Retry again. If it didn't help, try again later"
 	txtNothingToDelete             = "There's nothing to delete"
